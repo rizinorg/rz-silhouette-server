@@ -1,0 +1,39 @@
+# SPDX-FileCopyrightText: 2023 RizinOrg <info@rizin.re>
+# SPDX-FileCopyrightText: 2023 deroad <wargio@libero.it>
+# SPDX-License-Identifier: LGPL-3.0-only
+
+# Max queue length before dropping connections.
+max_queue: 1024
+
+# Max packet size in bytes.
+max_packet: 5242880 # 5Mb
+
+# Bind address for raw tcp socket
+raw-bind: ":25000"
+# Bind address for TLS tcp socket.
+tls-bind: ":25443"
+
+# Tls key and certificate.
+tls-key: ""
+tls-cert: ""
+
+# message to visualize on clients connecting to the server.
+message: "\nHello World from the server!"
+
+# List of databases to read which contains the 'symbols' and 'sections'
+resources:
+  - arch: x86
+    bits: 32
+    files:
+      - /path/to/resource1.db
+      - /path/to/resource2.db
+  - arch: any
+    files:
+      - /path/to/resource3.db
+
+# path to the upload database for those clients that are authorized.
+upload_dir: /path/to/shared
+
+# Map of 'psk: bool' of authorized clients which can and cannot upload
+authorized:
+  39b1212a-944e-4b4f-83a7-33a3be33e314: true
