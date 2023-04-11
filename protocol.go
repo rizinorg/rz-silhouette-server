@@ -133,6 +133,12 @@ func handleBinaryRequest(server *Server, conn net.Conn, request *Request) {
 	var matches = MatchHints{}
 	for _, section := range binary.Sections {
 		hints := server.GetHints(request.Psk, &binary, section)
+		if hints == nil {
+			continue
+		}
+		for _, hint := range hints {
+			hint.Offset += section.Paddr
+		}
 		if matches.Hints == nil {
 			matches.Hints = hints
 		} else {
