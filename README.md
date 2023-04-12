@@ -21,3 +21,7 @@ The server will provide 2 types of info
 
 The server stores the info into databases.
 Some clients (based on the configuration) can be allowed to upload new signatures and hints.
+
+## Documentation
+
+Documentation is available [here](https://github.com/rizinorg/rz-silhouette/tree/main/docs)
