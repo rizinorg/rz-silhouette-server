@@ -45,6 +45,8 @@ jobs:
           - goos: windows
             goarch: arm
             goarm: 7
+          - goos: windows
+            goarch: arm64
           # BEGIN Other architectures
           # BEGIN riscv64 & ARM64
           - goos: linux
@@ -97,7 +99,7 @@ jobs:
       CGO_ENABLED: 0
     steps:
       - name: Checkout codebase
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Show workflow information 
         id: get_filename
@@ -105,7 +107,7 @@ jobs:
           export _NAME=$(jq ".[\"$GOOS-$GOARCH$GOARM$GOMIPS\"].friendlyName" -r < .github/build/friendly-filenames.json)
           echo "GOOS: $GOOS, GOARCH: $GOARCH, GOARM: $GOARM, GOMIPS: $GOMIPS, RELEASE_NAME: $_NAME"
       - name: Set up Go
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v3
         with:
           go-version: ^1.20
 
@@ -124,7 +126,7 @@ jobs:
         run: mv rz-silhouette-server-${{ matrix.goos }}-${{ matrix.goarch }} rz-silhouette-server-${{ matrix.goos }}-${{ matrix.goarch }}.exe
 
       - name: Upload files to Artifacts
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: rz-silhouette-server-${{ matrix.goos }}-${{ matrix.goarch }}
           path: ./rz-silhouette-server-${{ matrix.goos }}-*
