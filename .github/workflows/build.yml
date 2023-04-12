@@ -115,11 +115,11 @@ jobs:
         run: go mod download
  
       - name: Build rz-silhouette-server
-        run: go build -o rz-silhouette-server-${{ matrix.goos }}-${{ matrix.goarch }}
+        run: go build -ldflags="-w -s" -o rz-silhouette-server-${{ matrix.goos }}-${{ matrix.goarch }}
     
       - name: Build Mips softfloat
         if: matrix.goarch == 'mips' || matrix.goarch == 'mipsle'
-        run: GOMIPS=softfloat go build -o rz-silhouette-server-${{ matrix.goos }}-${{ matrix.goarch }}
+        run: GOMIPS=softfloat go build -ldflags="-w -s" -o rz-silhouette-server-${{ matrix.goos }}-${{ matrix.goarch }}
 
       - name: Rename Windows
         if: matrix.goos == 'windows'
