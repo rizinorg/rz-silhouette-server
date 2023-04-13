@@ -60,7 +60,7 @@ func readIncomingRequest(conn net.Conn) *Request {
 
 	req := &Request{}
 	if err := proto.Unmarshal(packet, req); err != nil {
-		log.Println("%s: Failed to decode request packet (%s).\n", conn.RemoteAddr(), err)
+		log.Printf("%s: Failed to decode request packet (%s).\n", conn.RemoteAddr(), err)
 		return nil
 	}
 
@@ -91,7 +91,7 @@ func writeOutgoingResponse(conn net.Conn, body proto.Message, status Status) boo
 	if body != nil {
 		message, err = proto.Marshal(body)
 		if err != nil {
-			log.Println("%s: Failed to encode response message (%s).\n", conn.RemoteAddr(), err)
+			log.Printf("%s: Failed to encode response message (%s).\n", conn.RemoteAddr(), err)
 			return false
 		}
 	}
@@ -103,7 +103,7 @@ func writeOutgoingResponse(conn net.Conn, body proto.Message, status Status) boo
 
 	packet, err := proto.Marshal(&resp)
 	if err != nil {
-		log.Println("%s: Failed to encode response packet (%s).\n", conn.RemoteAddr(), err)
+		log.Printf("%s: Failed to encode response packet (%s).\n", conn.RemoteAddr(), err)
 		return false
 	}
 
@@ -112,7 +112,7 @@ func writeOutgoingResponse(conn net.Conn, body proto.Message, status Status) boo
 	if writeToConn(conn, header) && writeToConn(conn, packet) {
 		return true
 	}
-	log.Println("%s: Failed to send response packet.\n", conn.RemoteAddr())
+	log.Printf("%s: Failed to send response packet.\n", conn.RemoteAddr())
 	return false
 }
 
@@ -126,7 +126,7 @@ func handlePingRequest(server *Server, conn net.Conn, request *Request) {
 func handleBinaryRequest(server *Server, conn net.Conn, request *Request) {
 	var binary = Binary{}
 	if err := proto.Unmarshal(request.Message, &binary); err != nil {
-		log.Println("%s: Failed to decode binary message (%s).\n", conn.RemoteAddr(), err)
+		log.Printf("%s: Failed to decode binary message (%s).\n", conn.RemoteAddr(), err)
 		return
 	}
 
@@ -152,7 +152,7 @@ func handleBinaryRequest(server *Server, conn net.Conn, request *Request) {
 func handleSignatureRequest(server *Server, conn net.Conn, request *Request) {
 	var signature = Signature{}
 	if err := proto.Unmarshal(request.Message, &signature); err != nil {
-		log.Println("%s: Failed to decode signature message (%s).\n", conn.RemoteAddr(), err)
+		log.Printf("%s: Failed to decode signature message (%s).\n", conn.RemoteAddr(), err)
 		return
 	}
 
