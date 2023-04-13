@@ -8,10 +8,11 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net"
 	"path/filepath"
 
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"go.etcd.io/bbolt"
 	"gopkg.in/yaml.v3"
 )
@@ -30,6 +31,7 @@ type Resource struct {
 type Config struct {
 	MaxQueue   int             `yaml:"max_queue"`
 	MaxPacket  int64           `yaml:"max_packet"`
+	LogLevel   string          `yaml:"log_level"`
 	RawBind    string          `yaml:"raw-bind"`
 	TlsBind    string          `yaml:"tls-bind"`
 	TlsKey     string          `yaml:"tls-key"`
@@ -52,12 +54,30 @@ func readConfig(filename string, config *Config) error {
 	}
 
 	if len(config.Authorized) < 1 {
-		log.Fatal("`authorized` is not defined or is empty.")
+		log.Fatal().Msg("`authorized` is not defined or is empty.")
 	} else if config.MaxPacket < MAX_BODY_LEN {
-		log.Fatal("`max_packet` is not defined or is less than 1Mb.")
+		log.Fatal().Msg("`max_packet` is not defined or is less than 1Mb.")
+	} else if len(config.LogLevel) < 1 {
+		log.Fatal().Msg("`log_level` is not defined or is empty.")
 	}
 
 	MAX_BODY_LEN = config.MaxPacket
+
+	// setup logger.
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+	switch {
+	case config.LogLevel == "fatal":
+		zerolog.SetGlobalLevel(zerolog.FatalLevel)
+	case config.LogLevel == "error":
+		zerolog.SetGlobalLevel(zerolog.ErrorLevel)
+	case config.LogLevel == "warn":
+		zerolog.SetGlobalLevel(zerolog.WarnLevel)
+	case config.LogLevel == "info":
+		zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	default:
+		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	}
+
 	return nil
 }
 
@@ -79,25 +99,25 @@ func (c *Config) GetListeners() (net.Listener, net.Listener) {
 	var err error
 
 	if c.RawBind == "" && c.TlsBind == "" {
-		log.Fatal("`bind` and `tls-bind` are not defined or empty.")
+		log.Fatal().Msg("`bind` and `tls-bind` are not defined or empty.")
 	}
 
 	if c.RawBind != "" {
 		lraw, err = net.Listen("tcp", c.RawBind)
 		if err != nil {
-			log.Fatal(err)
+			log.Fatal().Err(err).Send()
 		}
 	}
 
 	if exists(c.TlsCert) && exists(c.TlsKey) && c.TlsBind != "" {
 		cert, err := tls.LoadX509KeyPair(c.TlsCert, c.TlsKey)
 		if err != nil {
-			log.Fatal(err)
+			log.Fatal().Err(err).Send()
 		}
 		tlsConfig := &tls.Config{Certificates: []tls.Certificate{cert}}
 		ltls, err = tls.Listen("tcp", c.TlsBind, tlsConfig)
 		if err != nil {
-			log.Fatal(err)
+			log.Fatal().Err(err).Send()
 		}
 	}
 
@@ -110,7 +130,7 @@ func (c *Config) LoadResources() (map[string][]*bbolt.DB, map[string]*bbolt.DB) 
 	var err error = nil
 
 	if len(c.Resources) < 1 && c.UploadDir == "" {
-		log.Fatal("`resources` is empty or not defined in the config file")
+		log.Fatal().Msg("`resources` is empty or not defined in the config file")
 	}
 
 	resources[GENERIC_DB] = []*bbolt.DB{}
@@ -129,15 +149,15 @@ func (c *Config) LoadResources() (map[string][]*bbolt.DB, map[string]*bbolt.DB) 
 		for _, file := range res.Files {
 			dbFile, err := filepath.Abs(file)
 			if err != nil {
-				log.Fatal(err)
+				log.Fatal().Err(err).Send()
 			}
 
 			db, err := OpenDatabase(dbFile)
 			if err != nil {
-				log.Fatal(err)
+				log.Fatal().Err(err).Send()
 			}
 			search = append(search, db)
-			log.Println(key, ":", dbFile)
+			log.Debug().Msgf("%s : %s", key, dbFile)
 		}
 
 		resources[key] = search
@@ -146,9 +166,9 @@ func (c *Config) LoadResources() (map[string][]*bbolt.DB, map[string]*bbolt.DB) 
 	if c.UploadDir != "" {
 		c.UploadDir, err = filepath.Abs(c.UploadDir)
 		if err != nil {
-			log.Fatal(err)
+			log.Fatal().Err(err).Send()
 		} else if !exists(c.UploadDir) {
-			log.Fatal(c.UploadDir, "does not exists!")
+			log.Fatal().Msgf("'%s' does not exists!", c.UploadDir)
 		}
 
 		search := resources[GENERIC_DB]
@@ -161,12 +181,12 @@ func (c *Config) LoadResources() (map[string][]*bbolt.DB, map[string]*bbolt.DB) 
 
 			db, err := OpenDatabase(dbFile)
 			if err != nil {
-				log.Fatal(err)
+				log.Fatal().Err(err).Send()
 			}
 
 			search = append(search, db)
 			shared[key] = db
-			log.Println(key, ":", dbFile)
+			log.Info().Msgf("%s : %s", key, dbFile)
 		}
 		resources[GENERIC_DB] = search
 	}

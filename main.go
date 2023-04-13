@@ -5,7 +5,6 @@ package main
 
 import (
 	"flag"
-	"log"
 )
 
 func main() {
@@ -15,7 +14,7 @@ func main() {
 	flag.Parse()
 
 	if err := readConfig(configPath, &config); err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 
 	server := NewServer(&config)

@@ -8,6 +8,9 @@ max_queue: 1024
 # Max packet size in bytes.
 max_packet: 5242880 # 5Mb
 
+# Available log levels: fatal, error, warn, info, debug
+log_level: "debug"
+
 # Bind address for raw tcp socket
 raw-bind: ":25000"
 # Bind address for TLS tcp socket.

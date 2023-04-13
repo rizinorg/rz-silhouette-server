@@ -7,10 +7,10 @@ import (
 	"bytes"
 	"encoding/binary"
 	"io"
-	"log"
 	"net"
 	"time"
 
+	"github.com/rs/zerolog/log"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -27,13 +27,13 @@ func readFromConn(conn net.Conn, expected int64) ([]byte, bool) {
 	if err == io.EOF {
 		return nil, false
 	} else if err != nil {
-		log.Printf("%s: %s\n", conn.RemoteAddr(), err)
+		log.Info().Stringer("ip", conn.RemoteAddr()).Err(err).Send()
 		return nil, false
 	}
 
 	b := buffer.Bytes()
 	if len(b) != int(expected) {
-		log.Printf("%s: Expected %d but received only %d\n", conn.RemoteAddr(), expected, len(b))
+		log.Info().Stringer("ip", conn.RemoteAddr()).Msgf("Expected %d but received only %d", expected, len(b))
 		return nil, false
 	}
 	return b, true
@@ -42,25 +42,25 @@ func readFromConn(conn net.Conn, expected int64) ([]byte, bool) {
 func readIncomingRequest(conn net.Conn) *Request {
 	header, ok := readFromConn(conn, HEADER_SIZE)
 	if !ok {
-		log.Printf("%s: Failed to receive packet size..\n", conn.RemoteAddr())
+		log.Info().Stringer("ip", conn.RemoteAddr()).Msg("Failed to receive packet size.")
 		return nil
 	}
 
 	packetSize := int64(binary.BigEndian.Uint32(header))
 	if packetSize > MAX_BODY_LEN {
-		log.Printf("%s: Expected small body size (%d) but received %d\n", conn.RemoteAddr(), MAX_BODY_LEN, packetSize)
+		log.Info().Stringer("ip", conn.RemoteAddr()).Msgf("Expected small body size (%d) but received %d", MAX_BODY_LEN, packetSize)
 		return nil
 	}
 
 	packet, ok := readFromConn(conn, packetSize)
 	if !ok {
-		log.Printf("%s: Failed to receive packet..\n", conn.RemoteAddr())
+		log.Info().Stringer("ip", conn.RemoteAddr()).Msg("Failed to receive packet")
 		return nil
 	}
 
 	req := &Request{}
 	if err := proto.Unmarshal(packet, req); err != nil {
-		log.Printf("%s: Failed to decode request packet (%s).\n", conn.RemoteAddr(), err)
+		log.Info().Stringer("ip", conn.RemoteAddr()).Err(err).Msg("Failed to decode request")
 		return nil
 	}
 
@@ -75,10 +75,10 @@ func writeToConn(conn net.Conn, buffer []byte) bool {
 	if err == io.EOF {
 		return false
 	} else if err != nil {
-		log.Printf("%s: %s\n", conn.RemoteAddr(), err)
+		log.Info().Stringer("ip", conn.RemoteAddr()).Err(err).Send()
 		return false
 	} else if int(written) != len(buffer) {
-		log.Printf("%s: Failed to send all the bytes\n", conn.RemoteAddr())
+		log.Info().Stringer("ip", conn.RemoteAddr()).Msg("Failed to send all the bytes")
 		return false
 	}
 	return true
@@ -91,7 +91,7 @@ func writeOutgoingResponse(conn net.Conn, body proto.Message, status Status) boo
 	if body != nil {
 		message, err = proto.Marshal(body)
 		if err != nil {
-			log.Printf("%s: Failed to encode response message (%s).\n", conn.RemoteAddr(), err)
+			log.Info().Stringer("ip", conn.RemoteAddr()).Err(err).Msg("Failed to encode body")
 			return false
 		}
 	}
@@ -103,7 +103,7 @@ func writeOutgoingResponse(conn net.Conn, body proto.Message, status Status) boo
 
 	packet, err := proto.Marshal(&resp)
 	if err != nil {
-		log.Printf("%s: Failed to encode response packet (%s).\n", conn.RemoteAddr(), err)
+		log.Info().Stringer("ip", conn.RemoteAddr()).Err(err).Msg("Failed to encode response")
 		return false
 	}
 
@@ -112,7 +112,7 @@ func writeOutgoingResponse(conn net.Conn, body proto.Message, status Status) boo
 	if writeToConn(conn, header) && writeToConn(conn, packet) {
 		return true
 	}
-	log.Printf("%s: Failed to send response packet.\n", conn.RemoteAddr())
+	log.Info().Stringer("ip", conn.RemoteAddr()).Msg("Failed to send response packet")
 	return false
 }
 
@@ -126,7 +126,12 @@ func handlePingRequest(server *Server, conn net.Conn, request *Request) {
 func handleBinaryRequest(server *Server, conn net.Conn, request *Request) {
 	var binary = Binary{}
 	if err := proto.Unmarshal(request.Message, &binary); err != nil {
-		log.Printf("%s: Failed to decode binary message (%s).\n", conn.RemoteAddr(), err)
+		log.Info().
+			Stringer("ip", conn.RemoteAddr()).
+			Str("psk", request.Psk).
+			Stringer("route", request.Route).
+			Err(err).
+			Send()
 		return
 	}
 
@@ -152,7 +157,11 @@ func handleBinaryRequest(server *Server, conn net.Conn, request *Request) {
 func handleSignatureRequest(server *Server, conn net.Conn, request *Request) {
 	var signature = Signature{}
 	if err := proto.Unmarshal(request.Message, &signature); err != nil {
-		log.Printf("%s: Failed to decode signature message (%s).\n", conn.RemoteAddr(), err)
+		log.Info().Stringer("ip", conn.RemoteAddr()).
+			Str("psk", request.Psk).
+			Stringer("route", request.Route).
+			Err(err).
+			Send()
 		return
 	}
 
@@ -168,7 +177,11 @@ func handleShareBinRequest(server *Server, conn net.Conn, request *Request) {
 
 	var bin = ShareBin{}
 	if err := proto.Unmarshal(request.Message, &bin); err != nil {
-		log.Printf("%s: Failed to decode share bin message (%v).\n", conn.RemoteAddr(), err)
+		log.Info().Stringer("ip", conn.RemoteAddr()).
+			Str("psk", request.Psk).
+			Stringer("route", request.Route).
+			Err(err).
+			Send()
 		return
 	}
 
@@ -187,19 +200,32 @@ func handleShareBinRequest(server *Server, conn net.Conn, request *Request) {
 	writeOutgoingResponse(conn, nil, Status_SHARE_WAS_SUCCESSFUL)
 }
 
+func logRequest(conn net.Conn, request *Request, start time.Time) {
+	end := time.Now()
+	log.Warn().
+		Stringer("ip", conn.RemoteAddr()).
+		Str("psk", request.Psk).
+		Stringer("route", request.Route).
+		TimeDiff("duration", end, start).
+		Send()
+}
+
 func handleConnection(server *Server, conn net.Conn) {
+	var start = time.Now()
 	var request *Request = nil
+
 	defer conn.Close()
 
 	request = readIncomingRequest(conn)
 	if request == nil {
 		return
-	} else if !server.IsAuthorized(request) {
+	}
+
+	if !server.IsAuthorized(request) {
 		writeOutgoingResponse(conn, nil, Status_CLIENT_BAD_PRE_SHARED_KEY)
+		logRequest(conn, request, start)
+
 		return
-	} else {
-		name := Route_name[int32(request.Route)]
-		log.Printf("%s '%s' has connected (%s).\n", conn.RemoteAddr(), request.Psk, name)
 	}
 
 	switch request.Route {
@@ -212,7 +238,6 @@ func handleConnection(server *Server, conn net.Conn) {
 	case Route_SHARE_BIN:
 		handleShareBinRequest(server, conn, request)
 	default:
-		log.Printf("%s: failed to understand the route id %d.\n", conn.RemoteAddr(), int32(request.Route))
 	}
-
+	logRequest(conn, request, start)
 }

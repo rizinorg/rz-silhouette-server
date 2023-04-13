@@ -5,13 +5,13 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"net"
 	"runtime"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog/log"
 	"go.etcd.io/bbolt"
 )
 
@@ -78,7 +78,7 @@ func (s *Server) GetSymbol(psk string, sig *Signature) *Symbol {
 	for _, db := range dbs {
 		sym, err := DbGetSymbol(db, key)
 		if err != nil {
-			log.Println(psk, err)
+			log.Error().Str("psk", psk).Err(err).Send()
 			continue
 		} else if sym != nil {
 			return sym
@@ -98,7 +98,7 @@ func (s *Server) SetSymbol(psk string, sig *Signature, sym *Symbol) {
 	for _, db := range dbs {
 		found, err := DbHasSymbol(db, key)
 		if err != nil {
-			log.Println(psk, err)
+			log.Error().Str("psk", psk).Err(err).Send()
 			continue
 		} else if found {
 			// don't do anything if the hints are known.
@@ -108,7 +108,7 @@ func (s *Server) SetSymbol(psk string, sig *Signature, sym *Symbol) {
 
 	db := s.GetShareDB(psk)
 	if db == nil {
-		log.Println(psk, "tried to upload hints but db was not found.")
+		log.Error().Str("psk", psk).Msg("tried to upload hints but db was not found")
 		return
 	}
 
@@ -128,9 +128,9 @@ func (s *Server) SetSymbol(psk string, sig *Signature, sym *Symbol) {
 	err := DbSetSymbol(db, key, psk, sym)
 	s.mutex.Unlock()
 	if err != nil {
-		log.Println(psk, err)
+		log.Error().Str("psk", psk).Err(err).Send()
 	} else {
-		log.Printf("'%s' added '%s|%d|%s' symbol\n", psk, sig.Arch, sig.Bits, sym.Name)
+		log.Warn().Str("psk", psk).Str("arch", sig.Arch).Uint32("bits", sig.Bits).Str("name", sym.Name).Send()
 	}
 }
 
@@ -140,7 +140,7 @@ func (s *Server) GetHints(psk string, bin *Binary, sec *SectionHash) []*Hint {
 	for _, db := range dbs {
 		hints, err := DbGetHints(db, key)
 		if err != nil {
-			log.Println(psk, err)
+			log.Error().Str("psk", psk).Err(err).Send()
 			continue
 		} else if hints != nil {
 			return hints
@@ -158,7 +158,7 @@ func (s *Server) SetHints(psk string, bin *ShareBin, sec *ShareSection) {
 	for _, db := range dbs {
 		found, err := DbHasHints(db, key)
 		if err != nil {
-			log.Println(psk, err)
+			log.Error().Str("psk", psk).Err(err).Send()
 			continue
 		} else if found {
 			// don't do anything if the hints are known.
@@ -168,7 +168,7 @@ func (s *Server) SetHints(psk string, bin *ShareBin, sec *ShareSection) {
 
 	db := s.GetShareDB(psk)
 	if db == nil {
-		log.Println(psk, "tried to upload hints but db was not found.")
+		log.Error().Str("psk", psk).Msg("tried to upload hints but db was not found")
 		return
 	}
 
@@ -176,9 +176,9 @@ func (s *Server) SetHints(psk string, bin *ShareBin, sec *ShareSection) {
 	err := DbSetHints(db, key, psk, sec.Name, sec.Hints)
 	s.mutex.Unlock()
 	if err != nil {
-		log.Println(psk, err)
+		log.Error().Str("psk", psk).Err(err).Send()
 	} else {
-		log.Printf("'%s' added '%s' and %d hints\n", psk, sec.Name, len(sec.Hints))
+		log.Warn().Str("psk", psk).Str("section", sec.Name).Int("hints", len(sec.Hints)).Send()
 	}
 }
 
@@ -206,19 +206,19 @@ func (s *Server) Worker() {
 }
 
 func (s *Server) Listen(listener net.Listener) {
-	log.Printf("listening at %s\n", listener.Addr())
+	log.Warn().Msgf("listening at %s", listener.Addr())
 
 	defer listener.Close()
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			log.Println(err)
+			log.Error().Err(err).Send()
 			continue
 		}
 		select {
 		case s.queue <- conn:
 		default:
-			log.Printf("%s connected but channel was full.\n", conn.RemoteAddr())
+			log.Error().Stringer("ip", conn.RemoteAddr()).Msg("client connected but channel was full")
 			conn.Close()
 		}
 	}
