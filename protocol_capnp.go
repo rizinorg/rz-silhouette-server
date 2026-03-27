@@ -3,7 +3,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"net"
 
@@ -16,7 +15,7 @@ import (
 type capnpRequest struct {
 	Psk     string
 	Version uint32
-	Route   servicecapnp.RouteV2
+	Route   servicecapnp.SilRoute
 	Program ProgramBundle
 }
 
@@ -26,7 +25,7 @@ func decodeCapnpRequest(packet []byte) (capnpRequest, error) {
 		return capnpRequest{}, err
 	}
 
-	root, err := servicecapnp.ReadRootRequestV2(msg)
+	root, err := servicecapnp.ReadRootSilRequest(msg)
 	if err != nil {
 		return capnpRequest{}, err
 	}
@@ -43,12 +42,12 @@ func decodeCapnpRequest(packet []byte) (capnpRequest, error) {
 	}
 
 	switch root.Which() {
-	case servicecapnp.RequestV2_Which_ping:
-		if req.Route != servicecapnp.RouteV2_ping {
+	case servicecapnp.SilRequest_Which_ping:
+		if req.Route != servicecapnp.SilRoute_ping {
 			return capnpRequest{}, fmt.Errorf("capnp route mismatch: %s/%s", req.Route, root.Which())
 		}
-	case servicecapnp.RequestV2_Which_resolveProgram:
-		if req.Route != servicecapnp.RouteV2_resolveProgram {
+	case servicecapnp.SilRequest_Which_resolveProgram:
+		if req.Route != servicecapnp.SilRoute_resolveProgram {
 			return capnpRequest{}, fmt.Errorf("capnp route mismatch: %s/%s", req.Route, root.Which())
 		}
 		resolveReq, err := root.ResolveProgram()
@@ -59,8 +58,8 @@ func decodeCapnpRequest(packet []byte) (capnpRequest, error) {
 		if err != nil {
 			return capnpRequest{}, err
 		}
-	case servicecapnp.RequestV2_Which_shareProgram:
-		if req.Route != servicecapnp.RouteV2_shareProgram {
+	case servicecapnp.SilRequest_Which_shareProgram:
+		if req.Route != servicecapnp.SilRoute_shareProgram {
 			return capnpRequest{}, fmt.Errorf("capnp route mismatch: %s/%s", req.Route, root.Which())
 		}
 		shareReq, err := root.ShareProgram()
@@ -78,7 +77,7 @@ func decodeCapnpRequest(packet []byte) (capnpRequest, error) {
 	return req, nil
 }
 
-func decodeProgramBundle(get func() (servicecapnp.ProgramBundleV2, error)) (ProgramBundle, error) {
+func decodeProgramBundle(get func() (servicecapnp.SilProgramBundle, error)) (ProgramBundle, error) {
 	program, err := get()
 	if err != nil {
 		return ProgramBundle{}, err
@@ -107,7 +106,6 @@ func decodeProgramBundle(get func() (servicecapnp.ProgramBundleV2, error)) (Prog
 		Arch:       arch,
 		Bits:       program.Bits(),
 		BinaryID:   binaryID,
-		TopK:       program.Topk(),
 	}
 
 	sections, err := program.Sections()
@@ -150,14 +148,6 @@ func decodeProgramBundle(get func() (servicecapnp.ProgramBundleV2, error)) (Prog
 		if err != nil {
 			return ProgramBundle{}, err
 		}
-		pseudocode, err := function.Pseudocode()
-		if err != nil {
-			return ProgramBundle{}, err
-		}
-		pseudocodeSource, err := function.PseudocodeSource()
-		if err != nil {
-			return ProgramBundle{}, err
-		}
 		name, err := function.Name()
 		if err != nil {
 			return ProgramBundle{}, err
@@ -170,41 +160,28 @@ func decodeProgramBundle(get func() (servicecapnp.ProgramBundleV2, error)) (Prog
 		if err != nil {
 			return ProgramBundle{}, err
 		}
-		callsList, err := function.Calls()
-		if err != nil {
-			return ProgramBundle{}, err
-		}
-		calls := make([]uint64, 0, callsList.Len())
-		for j := 0; j < callsList.Len(); j++ {
-			calls = append(calls, callsList.At(j))
-		}
 		out.Functions = append(out.Functions, FunctionRecord{
-			Addr:             function.Addr(),
-			Size:             function.Size(),
-			Bits:             function.Bits(),
-			Arch:             arch,
-			Length:           function.Length(),
-			Digest:           append([]byte(nil), digest...),
-			SectionName:      sectionName,
-			SectionPaddr:     function.SectionPaddr(),
-			SectionOffset:    function.SectionOffset(),
-			Loc:              function.Loc(),
-			Nos:              function.Nos(),
-			Pseudocode:       pseudocode,
-			PseudocodeSource: pseudocodeSource,
-			Calls:            calls,
-			Name:             name,
-			Signature:        signature,
-			Callconv:         callconv,
+			Addr:          function.Addr(),
+			Size:          function.Size(),
+			Bits:          function.Bits(),
+			Arch:          arch,
+			Length:        function.Length(),
+			Digest:        append([]byte(nil), digest...),
+			SectionName:   sectionName,
+			SectionPaddr:  function.SectionPaddr(),
+			SectionOffset: function.SectionOffset(),
+			Name:          name,
+			Signature:     signature,
+			Callconv:      callconv,
 		})
 	}
 
 	return normalizeProgramBundle(out), nil
 }
 
-func writeCapnpMessageResponse(conn net.Conn, status servicecapnp.StatusV2, text string) bool {
+func writeCapnpMessageResponse(conn net.Conn, status servicecapnp.SilStatus, text string) bool {
 	msg, seg := capnp.NewSingleSegmentMessage(nil)
-	root, err := servicecapnp.NewRootResponseV2(seg)
+	root, err := servicecapnp.NewRootSilResponse(seg)
 	if err != nil {
 		log.Info().Stringer("ip", conn.RemoteAddr()).Err(err).Msg("Failed to allocate capnp response")
 		return false
@@ -224,51 +201,41 @@ func writeCapnpMessageResponse(conn net.Conn, status servicecapnp.StatusV2, text
 		log.Info().Stringer("ip", conn.RemoteAddr()).Err(err).Msg("Failed to encode capnp response")
 		return false
 	}
-	return writePacket(conn, wireCodecCapnp, packet)
+	return writePacket(conn, packet)
 }
 
-func writeCapnpServerInfo(conn net.Conn, info MLInfo, tlsRequired bool) bool {
+func writeCapnpServerInfo(conn net.Conn, tlsRequired bool) bool {
 	msg, seg := capnp.NewSingleSegmentMessage(nil)
-	root, err := servicecapnp.NewRootResponseV2(seg)
+	root, err := servicecapnp.NewRootSilResponse(seg)
 	if err != nil {
 		return false
 	}
-	root.SetStatus(servicecapnp.StatusV2_serverInfo)
+	root.SetStatus(servicecapnp.SilStatus_serverInfo)
 	serverInfo, err := root.NewServerInfo()
 	if err != nil {
 		return false
 	}
-	codecs, err := serverInfo.NewSupportedCodecs(2)
+	codecs, err := serverInfo.NewSupportedCodecs(1)
 	if err != nil {
 		return false
 	}
-	codecs.Set(0, servicecapnp.CodecV2_protobuf)
-	codecs.Set(1, servicecapnp.CodecV2_capnp)
-	serverInfo.SetMinVersion(MIN_VERSION)
-	serverInfo.SetMaxVersion(MAX_VERSION)
-	serverInfo.SetKeenhashEnabled(info.Available)
-	serverInfo.SetDecompilerRequired(true)
+	codecs.Set(0, servicecapnp.SilCodec_capnp)
+	serverInfo.SetVersion(PROTOCOL_VERSION)
 	serverInfo.SetTlsRequired(tlsRequired)
-	if err := serverInfo.SetModelVersion(info.ModelVersion); err != nil {
-		return false
-	}
-	if err := serverInfo.SetIndexVersion(info.IndexVersion); err != nil {
-		return false
-	}
 	packet, err := msg.MarshalPacked()
 	if err != nil {
 		return false
 	}
-	return writePacket(conn, wireCodecCapnp, packet)
+	return writePacket(conn, packet)
 }
 
 func writeCapnpResolveResult(conn net.Conn, result ResolveProgramResult) bool {
 	msg, seg := capnp.NewSingleSegmentMessage(nil)
-	root, err := servicecapnp.NewRootResponseV2(seg)
+	root, err := servicecapnp.NewRootSilResponse(seg)
 	if err != nil {
 		return false
 	}
-	root.SetStatus(servicecapnp.StatusV2_resolveResult)
+	root.SetStatus(servicecapnp.SilStatus_resolveResult)
 	resolveResult, err := root.NewResolveResult()
 	if err != nil {
 		return false
@@ -281,10 +248,10 @@ func writeCapnpResolveResult(conn net.Conn, result ResolveProgramResult) bool {
 	if err != nil {
 		return false
 	}
-	return writePacket(conn, wireCodecCapnp, packet)
+	return writePacket(conn, packet)
 }
 
-func populateCapnpResolveResult(dst servicecapnp.ResolveResultV2, result ResolveProgramResult) error {
+func populateCapnpResolveResult(dst servicecapnp.SilResolveResult, result ResolveProgramResult) error {
 	hints, err := dst.NewHints(int32(len(result.Hints)))
 	if err != nil {
 		return err
@@ -293,10 +260,6 @@ func populateCapnpResolveResult(dst servicecapnp.ResolveResultV2, result Resolve
 		entry := hints.At(i)
 		entry.SetBits(hint.Bits)
 		entry.SetOffset(hint.Offset)
-		entry.SetConfidence(hint.Confidence)
-		if err := entry.SetMatchedBinaryId(hint.MatchedBinaryID); err != nil {
-			return err
-		}
 	}
 
 	symbols, err := dst.NewSymbols(int32(len(result.Symbols)))
@@ -306,7 +269,6 @@ func populateCapnpResolveResult(dst servicecapnp.ResolveResultV2, result Resolve
 	for i, symbol := range result.Symbols {
 		entry := symbols.At(i)
 		entry.SetAddr(symbol.Addr)
-		entry.SetConfidence(symbol.Confidence)
 		entry.SetExact(symbol.Exact)
 		entry.SetOffset(symbol.Offset)
 		entry.SetSize(symbol.Size)
@@ -331,29 +293,16 @@ func populateCapnpResolveResult(dst servicecapnp.ResolveResultV2, result Resolve
 		}
 		sym.SetBits(symbol.Symbol.Bits)
 	}
-
-	candidates, err := dst.NewCandidateBinaryIds(int32(len(result.CandidateBinaryIDs)))
-	if err != nil {
-		return err
-	}
-	for i, candidate := range result.CandidateBinaryIDs {
-		if err := candidates.Set(i, candidate); err != nil {
-			return err
-		}
-	}
-	if err := dst.SetModelVersion(result.ModelVersion); err != nil {
-		return err
-	}
-	return dst.SetIndexVersion(result.IndexVersion)
+	return nil
 }
 
 func writeCapnpShareResult(conn net.Conn, result ShareProgramResult) bool {
 	msg, seg := capnp.NewSingleSegmentMessage(nil)
-	root, err := servicecapnp.NewRootResponseV2(seg)
+	root, err := servicecapnp.NewRootSilResponse(seg)
 	if err != nil {
 		return false
 	}
-	root.SetStatus(servicecapnp.StatusV2_shareResult)
+	root.SetStatus(servicecapnp.SilStatus_shareResult)
 	shareResult, err := root.NewShareResult()
 	if err != nil {
 		return false
@@ -361,19 +310,11 @@ func writeCapnpShareResult(conn net.Conn, result ShareProgramResult) bool {
 	if err := shareResult.SetBinaryId(result.BinaryID); err != nil {
 		return false
 	}
-	shareResult.SetIngestedFunctions(result.IngestedFunctions)
-	shareResult.SetCandidateCount(result.CandidateCount)
-	if err := shareResult.SetModelVersion(result.ModelVersion); err != nil {
-		return false
-	}
-	if err := shareResult.SetIndexVersion(result.IndexVersion); err != nil {
-		return false
-	}
 	packet, err := msg.MarshalPacked()
 	if err != nil {
 		return false
 	}
-	return writePacket(conn, wireCodecCapnp, packet)
+	return writePacket(conn, packet)
 }
 
 func handleCapnpConnection(server *Server, conn net.Conn, packet []byte) (requestLogInfo, bool) {
@@ -384,7 +325,6 @@ func handleCapnpConnection(server *Server, conn net.Conn, packet []byte) (reques
 	}
 
 	info := requestLogInfo{
-		codec:   wireCodecCapnp,
 		psk:     request.Psk,
 		route:   request.Route.String(),
 		version: request.Version,
@@ -392,35 +332,33 @@ func handleCapnpConnection(server *Server, conn net.Conn, packet []byte) (reques
 
 	_, exists := server.auths[request.Psk]
 	if request.Psk == "" || !exists {
-		writeCapnpMessageResponse(conn, servicecapnp.StatusV2_clientBadPreSharedKey, "client pre-shared key was rejected")
+		writeCapnpMessageResponse(conn, servicecapnp.SilStatus_clientBadPreSharedKey, "client pre-shared key was rejected")
 		return info, true
 	}
-	if request.Version != CAPNP_VERSION {
-		writeCapnpMessageResponse(conn, servicecapnp.StatusV2_versionMismatch, fmt.Sprintf("client/server capnp protocol mismatch: got %d want %d", request.Version, CAPNP_VERSION))
+	if request.Version != PROTOCOL_VERSION {
+		writeCapnpMessageResponse(conn, servicecapnp.SilStatus_versionMismatch, fmt.Sprintf("client/server capnp protocol mismatch: got %d want %d", request.Version, PROTOCOL_VERSION))
 		return info, true
 	}
 	if server.capnpRequireTLS && !isTLSConn(conn) {
-		writeCapnpMessageResponse(conn, servicecapnp.StatusV2_clientNotAuthorized, "capnp v2 requires TLS")
+		writeCapnpMessageResponse(conn, servicecapnp.SilStatus_clientNotAuthorized, "capnp requires TLS")
 		return info, true
 	}
 
-	ctx := context.Background()
 	switch request.Route {
-	case servicecapnp.RouteV2_ping:
-		mlInfo := server.MLInfo(ctx)
-		writeCapnpServerInfo(conn, mlInfo, server.capnpRequireTLS)
-	case servicecapnp.RouteV2_resolveProgram:
+	case servicecapnp.SilRoute_ping:
+		writeCapnpServerInfo(conn, server.capnpRequireTLS)
+	case servicecapnp.SilRoute_resolveProgram:
 		result := server.ResolveProgram(request.Psk, request.Program)
 		writeCapnpResolveResult(conn, result)
-	case servicecapnp.RouteV2_shareProgram:
+	case servicecapnp.SilRoute_shareProgram:
 		if !server.auths[request.Psk] {
-			writeCapnpMessageResponse(conn, servicecapnp.StatusV2_clientNotAuthorized, "client is not allowed to share")
+			writeCapnpMessageResponse(conn, servicecapnp.SilStatus_clientNotAuthorized, "client is not allowed to share")
 			return info, true
 		}
 		result := server.ShareProgram(request.Psk, request.Program)
 		writeCapnpShareResult(conn, result)
 	default:
-		writeCapnpMessageResponse(conn, servicecapnp.StatusV2_internalError, "unsupported capnp route")
+		writeCapnpMessageResponse(conn, servicecapnp.SilStatus_internalError, "unsupported capnp route")
 	}
 	return info, true
 }

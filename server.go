@@ -4,7 +4,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"runtime"
@@ -31,8 +30,6 @@ type Server struct {
 	shared          map[string]*bbolt.DB
 	mutex           sync.Mutex
 	queue           chan net.Conn
-	ml              MLClient
-	mlTopK          int
 	capnpRequireTLS bool
 }
 
@@ -100,14 +97,6 @@ func (s *Server) GetSymbolMeta(psk string, sig *Signature, candidates map[string
 		}
 	}
 	return nil
-}
-
-func (s *Server) GetSymbol(psk string, sig *Signature) *Symbol {
-	meta := s.GetSymbolMeta(psk, sig, nil)
-	if meta == nil {
-		return nil
-	}
-	return meta.Symbol
 }
 
 func (s *Server) GetLocationSymbolMeta(psk, binaryID string, fn FunctionRecord) *MetaSymbol {
@@ -244,14 +233,6 @@ func (s *Server) GetHintsMeta(psk string, binType, binOS string, sec *SectionHas
 	return nil
 }
 
-func (s *Server) GetHints(psk string, bin *Binary, sec *SectionHash) []*Hint {
-	meta := s.GetHintsMeta(psk, bin.Type, bin.Os, sec, nil)
-	if meta == nil {
-		return nil
-	}
-	return meta.Hints
-}
-
 func (s *Server) SetHintsWithBinaryID(psk string, bin *ShareBin, sec *ShareSection, binaryID string) {
 	if sec == nil || sec.Hints == nil || len(sec.Hints) < 1 {
 		return
@@ -292,22 +273,6 @@ func (s *Server) SetHintsWithBinaryID(psk string, bin *ShareBin, sec *ShareSecti
 
 func (s *Server) SetHints(psk string, bin *ShareBin, sec *ShareSection) {
 	s.SetHintsWithBinaryID(psk, bin, sec, "")
-}
-
-func (s *Server) IsAuthorized(req *Request) bool {
-	if req.Psk == "" {
-		return false
-	}
-	_, exists := s.auths[req.Psk]
-	return exists
-}
-
-func (s *Server) CanShare(req *Request) bool {
-	if req.Psk == "" {
-		return false
-	}
-	canShare, exists := s.auths[req.Psk]
-	return exists && canShare
 }
 
 func (s *Server) Worker() {
@@ -351,8 +316,6 @@ func NewServer(config *Config) *Server {
 		search:          search,
 		shared:          shared,
 		queue:           make(chan net.Conn, maxQueue),
-		ml:              NewMLClient(config.MLServiceURL, config.MLTimeoutDuration()),
-		mlTopK:          config.MLTopK,
 		capnpRequireTLS: config.CapnpRequireTLS,
 	}
 
@@ -362,16 +325,4 @@ func NewServer(config *Config) *Server {
 	}
 
 	return server
-}
-
-func (s *Server) MLInfo(ctx context.Context) MLInfo {
-	if s.ml == nil {
-		return MLInfo{}
-	}
-	info, err := s.ml.Info(ctx)
-	if err != nil {
-		log.Warn().Err(err).Msg("ml info probe failed")
-		return MLInfo{}
-	}
-	return info
 }

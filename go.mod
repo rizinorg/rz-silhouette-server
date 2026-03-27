@@ -6,7 +6,6 @@ require (
 	capnproto.org/go/capnp/v3 v3.1.0-alpha.2
 	github.com/rs/zerolog v1.29.0
 	go.etcd.io/bbolt v1.3.7
-	google.golang.org/protobuf v1.30.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 

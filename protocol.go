@@ -13,19 +13,11 @@ import (
 )
 
 const (
-	HEADER_SIZE = int64(4)
-	CAPNP_MAGIC = "SIL2"
-)
-
-type wireCodec int
-
-const (
-	wireCodecProtobuf wireCodec = iota
-	wireCodecCapnp
+	HEADER_SIZE    = int64(4)
+	PROTOCOL_MAGIC = "SILC"
 )
 
 type requestLogInfo struct {
-	codec   wireCodec
 	psk     string
 	route   string
 	version uint32
@@ -49,30 +41,29 @@ func readFromConn(conn net.Conn, expected int64) ([]byte, bool) {
 	return buffer, true
 }
 
-func readIncomingPacket(conn net.Conn) (wireCodec, []byte, bool) {
+func readIncomingPacket(conn net.Conn) ([]byte, bool) {
 	header, ok := readFromConn(conn, HEADER_SIZE)
 	if !ok {
 		log.Info().Stringer("ip", conn.RemoteAddr()).Msg("Failed to receive packet size.")
-		return wireCodecProtobuf, nil, false
+		return nil, false
 	}
 
 	packetSize := int64(binary.BigEndian.Uint32(header))
 	if packetSize > MAX_BODY_LEN {
 		log.Info().Stringer("ip", conn.RemoteAddr()).Msgf("Expected small body size (%d) but received %d", MAX_BODY_LEN, packetSize)
-		return wireCodecProtobuf, nil, false
+		return nil, false
 	}
 
 	packet, ok := readFromConn(conn, packetSize)
 	if !ok {
 		log.Info().Stringer("ip", conn.RemoteAddr()).Msg("Failed to receive packet")
-		return wireCodecProtobuf, nil, false
+		return nil, false
 	}
-
-	if len(packet) >= len(CAPNP_MAGIC) && string(packet[:len(CAPNP_MAGIC)]) == CAPNP_MAGIC {
-		return wireCodecCapnp, packet[len(CAPNP_MAGIC):], true
+	if len(packet) < len(PROTOCOL_MAGIC) || string(packet[:len(PROTOCOL_MAGIC)]) != PROTOCOL_MAGIC {
+		log.Info().Stringer("ip", conn.RemoteAddr()).Msg("Failed to receive capnp packet magic")
+		return nil, false
 	}
-
-	return wireCodecProtobuf, packet, true
+	return packet[len(PROTOCOL_MAGIC):], true
 }
 
 func writeToConn(conn net.Conn, buffer []byte) bool {
@@ -90,11 +81,8 @@ func writeToConn(conn net.Conn, buffer []byte) bool {
 	return true
 }
 
-func writePacket(conn net.Conn, codec wireCodec, body []byte) bool {
-	if codec == wireCodecCapnp {
-		body = append([]byte(CAPNP_MAGIC), body...)
-	}
-
+func writePacket(conn net.Conn, body []byte) bool {
+	body = append([]byte(PROTOCOL_MAGIC), body...)
 	header := make([]byte, 4)
 	binary.BigEndian.PutUint32(header[:], uint32(len(body)))
 	if writeToConn(conn, header) && writeToConn(conn, body) {
@@ -113,10 +101,7 @@ func logRequest(conn net.Conn, info requestLogInfo, start time.Time) {
 	end := time.Now()
 	log.Warn().
 		Stringer("ip", conn.RemoteAddr()).
-		Str("codec", map[wireCodec]string{
-			wireCodecProtobuf: "protobuf",
-			wireCodecCapnp:    "capnp",
-		}[info.codec]).
+		Str("codec", "capnp").
 		Str("psk", info.psk).
 		Str("route", info.route).
 		Uint32("version", info.version).
@@ -128,21 +113,13 @@ func handleConnection(server *Server, conn net.Conn) {
 	start := time.Now()
 	defer conn.Close()
 
-	codec, packet, ok := readIncomingPacket(conn)
+	packet, ok := readIncomingPacket(conn)
 	if !ok {
 		return
 	}
 
-	switch codec {
-	case wireCodecCapnp:
-		info, handled := handleCapnpConnection(server, conn, packet)
-		if handled {
-			logRequest(conn, info, start)
-		}
-	default:
-		info, handled := handleLegacyConnection(server, conn, packet)
-		if handled {
-			logRequest(conn, info, start)
-		}
+	info, handled := handleCapnpConnection(server, conn, packet)
+	if handled {
+		logRequest(conn, info, start)
 	}
 }
