@@ -7,3 +7,4 @@ config.local.yaml
 state/
 artifacts/
 ml_service/.cache/
+servicecapnp/service.capnp.go
