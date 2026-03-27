@@ -1,26 +1,27 @@
 # Rizin Silhouette Server
 
-This server is used to provide signatures using the [rz-silhouette](https://github.com/rizinorg/rz-silhouette) plugin for rizin.
+This server provides signatures, symbols, and hints to the [rz-silhouette](https://github.com/rizinorg/rz-silhouette) plugin for Rizin.
 
-## Generating signatures
+## Usage
 
 1. Build the https://github.com/rizinorg/rz-silhouette-server and install https://github.com/rizinorg/rz-silhouette
 2. Run `rz-silhouette-server -c config.yaml`
 3. Execute `rizin -Qc 'aa ; sil share' /path/to/the/binary.exe`
 
-Ensure that the `rizin` plugin `rz-silhouette` is configured to point towards the server and that the user can share the info with the server.
+Ensure that the `rizin` plugin `rz-silhouette` points to the server and that the configured PSK is allowed to upload.
 
-## Info the server provides
+## Protocols
 
-The server will provide 2 types of info
+The server provides two protocol paths:
 
-1. Hints based on the match on the binary section
-2. Symbols based on their signatures
+1. Legacy protobuf exact matching
+2. Cap'n Proto v2 batched resolve/share, with optional ML assistance
 
-## Server behaviour
+## Storage
 
-The server stores the info into databases.
-Some clients (based on the configuration) can be allowed to upload new signatures and hints.
+The server stores exact-match data in BoltDB. Some clients, based on the configuration, can upload new signatures and hints.
+
+If `ml_service_url` is configured, `ResolveProgram` and `ShareProgram` also forward the normalized program bundle to `ml_service/`. Exact-match BoltDB data remains authoritative.
 
 ## Documentation
 

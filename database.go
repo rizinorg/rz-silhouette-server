@@ -6,6 +6,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"go.etcd.io/bbolt"
@@ -19,17 +20,21 @@ const (
 var (
 	DB_BUCKET_SYM = []byte("Symbols")
 	DB_BUCKET_SEC = []byte("Sections")
+	DB_BUCKET_LOC = []byte("Locations")
 )
 
 type MetaHints struct {
-	Author string
-	Name   string
-	Hints  []*Hint
+	Author   string  `json:"author"`
+	Name     string  `json:"name"`
+	BinaryID string  `json:"binary_id,omitempty"`
+	Hints    []*Hint `json:"hints"`
 }
 
 type MetaSymbol struct {
-	Author string
-	Symbol *Symbol
+	Author   string  `json:"author"`
+	BinaryID string  `json:"binary_id,omitempty"`
+	Symbol   *Symbol `json:"symbol"`
+	Size     uint32  `json:"size,omitempty"`
 }
 
 func SignatureToKey(s *Signature) []byte {
@@ -40,6 +45,11 @@ func SignatureToKey(s *Signature) []byte {
 	arch := sanitizeWord(s.Arch, "x86")
 	prefix := fmt.Sprintf("%s|%d|%02x|", arch, s.Bits, symlen)
 	return append([]byte(prefix), s.Digest...)
+}
+
+func FunctionLocationToKey(binaryID, sectionName string, sectionPaddr, sectionOffset uint64) []byte {
+	sectionName = strings.TrimSpace(sectionName)
+	return []byte(fmt.Sprintf("%s|%s|%016x|%016x", binaryID, sectionName, sectionPaddr, sectionOffset))
 }
 
 func SectionHashToKey(sh *SectionHash, binType, binOs string) []byte {
@@ -73,6 +83,14 @@ func getValue(db *bbolt.DB, name, key []byte) ([]byte, error) {
 }
 
 func DbGetHints(db *bbolt.DB, key []byte) ([]*Hint, error) {
+	meta, err := DbGetHintsMeta(db, key)
+	if meta == nil || err != nil {
+		return nil, err
+	}
+	return meta.Hints, nil
+}
+
+func DbGetHintsMeta(db *bbolt.DB, key []byte) (*MetaHints, error) {
 	value, err := getValue(db, DB_BUCKET_SEC, key)
 	if value == nil {
 		return nil, err
@@ -80,7 +98,7 @@ func DbGetHints(db *bbolt.DB, key []byte) ([]*Hint, error) {
 
 	ms := MetaHints{}
 	err = json.Unmarshal(value, &ms)
-	return ms.Hints, err
+	return &ms, err
 }
 
 func DbHasHints(db *bbolt.DB, key []byte) (bool, error) {
@@ -88,11 +106,12 @@ func DbHasHints(db *bbolt.DB, key []byte) (bool, error) {
 	return value != nil, err
 }
 
-func DbSetHints(db *bbolt.DB, key []byte, author, name string, hints []*Hint) error {
+func DbSetHintsMeta(db *bbolt.DB, key []byte, author, name, binaryID string, hints []*Hint) error {
 	ms := MetaHints{
-		Author: author,
-		Name:   name,
-		Hints:  hints,
+		Author:   author,
+		Name:     name,
+		BinaryID: binaryID,
+		Hints:    hints,
 	}
 
 	value, err := json.Marshal(&ms)
@@ -103,7 +122,19 @@ func DbSetHints(db *bbolt.DB, key []byte, author, name string, hints []*Hint) er
 	return setValue(db, DB_BUCKET_SEC, key, value)
 }
 
+func DbSetHints(db *bbolt.DB, key []byte, author, name string, hints []*Hint) error {
+	return DbSetHintsMeta(db, key, author, name, "", hints)
+}
+
 func DbGetSymbol(db *bbolt.DB, key []byte) (*Symbol, error) {
+	meta, err := DbGetSymbolMeta(db, key)
+	if meta == nil || err != nil {
+		return nil, err
+	}
+	return meta.Symbol, nil
+}
+
+func DbGetSymbolMeta(db *bbolt.DB, key []byte) (*MetaSymbol, error) {
 	value, err := getValue(db, DB_BUCKET_SYM, key)
 	if value == nil {
 		return nil, err
@@ -111,7 +142,18 @@ func DbGetSymbol(db *bbolt.DB, key []byte) (*Symbol, error) {
 
 	ms := MetaSymbol{}
 	err = json.Unmarshal(value, &ms)
-	return ms.Symbol, err
+	return &ms, err
+}
+
+func DbGetLocationSymbolMeta(db *bbolt.DB, key []byte) (*MetaSymbol, error) {
+	value, err := getValue(db, DB_BUCKET_LOC, key)
+	if value == nil {
+		return nil, err
+	}
+
+	ms := MetaSymbol{}
+	err = json.Unmarshal(value, &ms)
+	return &ms, err
 }
 
 func DbHasSymbol(db *bbolt.DB, key []byte) (bool, error) {
@@ -119,14 +161,21 @@ func DbHasSymbol(db *bbolt.DB, key []byte) (bool, error) {
 	return value != nil, err
 }
 
-func DbSetSymbol(db *bbolt.DB, key []byte, author string, sym *Symbol) error {
+func DbHasLocationSymbol(db *bbolt.DB, key []byte) (bool, error) {
+	value, err := getValue(db, DB_BUCKET_LOC, key)
+	return value != nil, err
+}
+
+func DbSetSymbolMeta(db *bbolt.DB, key []byte, author, binaryID string, sym *Symbol, size uint32) error {
 	if sym == nil {
 		return nil
 	}
 
 	ms := MetaSymbol{
-		Author: author,
-		Symbol: sym,
+		Author:   author,
+		BinaryID: binaryID,
+		Symbol:   sym,
+		Size:     size,
 	}
 
 	value, err := json.Marshal(&ms)
@@ -137,12 +186,40 @@ func DbSetSymbol(db *bbolt.DB, key []byte, author string, sym *Symbol) error {
 	return setValue(db, DB_BUCKET_SYM, key, value)
 }
 
+func DbSetLocationSymbolMeta(db *bbolt.DB, key []byte, author, binaryID string, sym *Symbol, size uint32) error {
+	if sym == nil {
+		return nil
+	}
+
+	ms := MetaSymbol{
+		Author:   author,
+		BinaryID: binaryID,
+		Symbol:   sym,
+		Size:     size,
+	}
+
+	value, err := json.Marshal(&ms)
+	if err != nil {
+		return err
+	}
+
+	return setValue(db, DB_BUCKET_LOC, key, value)
+}
+
+func DbSetSymbol(db *bbolt.DB, key []byte, author string, sym *Symbol) error {
+	return DbSetSymbolMeta(db, key, author, "", sym, 0)
+}
+
 func initDatabase(tx *bbolt.Tx) error {
 	_, err := tx.CreateBucketIfNotExists(DB_BUCKET_SYM)
 	if err != nil {
 		return err
 	}
 	_, err = tx.CreateBucketIfNotExists(DB_BUCKET_SEC)
+	if err != nil {
+		return err
+	}
+	_, err = tx.CreateBucketIfNotExists(DB_BUCKET_LOC)
 	if err != nil {
 		return err
 	}

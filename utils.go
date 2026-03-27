@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	SYMBOLFILTER    = regexp.MustCompile(`[^a-zA-Z0-9:.]+`)
+	SYMBOLFILTER    = regexp.MustCompile(`[^a-zA-Z0-9:._]+`)
 	NONALPHANUMERIC = regexp.MustCompile(`[^a-z0-9]+`)
 	AUTH_FAIL       = errors.New("auth: failed to authenticate")
 	TCP_PKT_TOO_BIG = errors.New("tcp: packet size is too big")
