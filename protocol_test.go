@@ -8,22 +8,21 @@ import (
 	"testing"
 
 	capnp "capnproto.org/go/capnp/v3"
-	"google.golang.org/protobuf/proto"
 
 	"rz-silhouette-server/servicecapnp"
 )
 
 func buildCapnpPingPacket(packed bool) ([]byte, error) {
 	msg, seg := capnp.NewSingleSegmentMessage(nil)
-	root, err := servicecapnp.NewRootRequestV2(seg)
+	root, err := servicecapnp.NewRootSilRequest(seg)
 	if err != nil {
 		return nil, err
 	}
 	if err := root.SetPsk("demo-psk"); err != nil {
 		return nil, err
 	}
-	root.SetVersion(CAPNP_VERSION)
-	root.SetRoute(servicecapnp.RouteV2_ping)
+	root.SetVersion(PROTOCOL_VERSION)
+	root.SetRoute(servicecapnp.SilRoute_ping)
 	if _, err := root.NewPing(); err != nil {
 		return nil, err
 	}
@@ -46,10 +45,10 @@ func TestDecodeCapnpRequestPing(t *testing.T) {
 	if req.Psk != "demo-psk" {
 		t.Fatalf("unexpected psk: %q", req.Psk)
 	}
-	if req.Version != CAPNP_VERSION {
+	if req.Version != PROTOCOL_VERSION {
 		t.Fatalf("unexpected version: %d", req.Version)
 	}
-	if req.Route != servicecapnp.RouteV2_ping {
+	if req.Route != servicecapnp.SilRoute_ping {
 		t.Fatalf("unexpected route: %s", req.Route)
 	}
 }
@@ -64,7 +63,7 @@ func TestDecodeCapnpRequestPingUnpacked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, err := servicecapnp.ReadRootRequestV2(msg)
+	root, err := servicecapnp.ReadRootSilRequest(msg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,10 +74,10 @@ func TestDecodeCapnpRequestPingUnpacked(t *testing.T) {
 	if psk != "demo-psk" {
 		t.Fatalf("unexpected psk: %q", psk)
 	}
-	if root.Version() != CAPNP_VERSION {
+	if root.Version() != PROTOCOL_VERSION {
 		t.Fatalf("unexpected version: %d", root.Version())
 	}
-	if root.Route() != servicecapnp.RouteV2_ping {
+	if root.Route() != servicecapnp.SilRoute_ping {
 		t.Fatalf("unexpected route: %s", root.Route())
 	}
 }
@@ -96,43 +95,6 @@ func TestCapnpPingGoldenFixture(t *testing.T) {
 	want := strings.TrimSpace(string(body))
 	if got != want {
 		t.Fatalf("capnp ping fixture drifted\n got: %s\nwant: %s", got, want)
-	}
-}
-
-func TestLegacyProtobufRoundTrip(t *testing.T) {
-	req := &Request{
-		Psk:     "demo-psk",
-		Version: PROTOBUF_VERSION,
-		Route:   Route_PING,
-	}
-	packet, err := proto.Marshal(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	decoded, err := decodeLegacyRequest(packet)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if decoded.Psk != req.Psk || decoded.Version != req.Version || decoded.Route != req.Route {
-		t.Fatalf("decoded request mismatch: %+v", decoded)
-	}
-}
-
-func BenchmarkPingCodecProtobuf(b *testing.B) {
-	req := &Request{
-		Psk:     "demo-psk",
-		Version: PROTOBUF_VERSION,
-		Route:   Route_PING,
-	}
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		packet, err := proto.Marshal(req)
-		if err != nil {
-			b.Fatal(err)
-		}
-		if _, err := decodeLegacyRequest(packet); err != nil {
-			b.Fatal(err)
-		}
 	}
 }
 
@@ -160,7 +122,7 @@ func BenchmarkPingCodecCapnpUnpacked(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		if _, err := servicecapnp.ReadRootRequestV2(msg); err != nil {
+		if _, err := servicecapnp.ReadRootSilRequest(msg); err != nil {
 			b.Fatal(err)
 		}
 	}

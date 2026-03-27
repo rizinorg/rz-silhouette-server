@@ -11,27 +11,17 @@ This server provides signatures, symbols, and hints to the [rz-silhouette](https
 
 Ensure that the `rizin` plugin `rz-silhouette` points to the server and that the configured PSK is allowed to upload.
 
-## Protocols
+## Protocol
 
-The server provides two protocol paths:
-
-1. Legacy protobuf exact matching
-2. Cap'n Proto v2 batched resolve/share, with optional ML assistance
+The server provides a Cap'n Proto exact-match resolve/share protocol.
 
 ## Storage
 
 The server stores exact-match data in BoltDB. Some clients, based on the configuration, can upload new signatures and hints.
 
-If `ml_service_url` is configured, `ResolveProgram` and `ShareProgram` also forward the normalized program bundle to `ml_service/`. Exact-match BoltDB data remains authoritative.
-If `ml_service_url` is empty, the server stays exact-match only and no Python runtime is required.
-
-## ML Sidecar
-
-The KEENHash service is an optional sidecar. Create a virtual environment, install `ml_service/requirements.txt`, then run the Python service separately and point `ml_service_url` at it. The Go server does not import or build the Python stack.
-
 ## Security
 
-Cap'n Proto v2 does not encrypt traffic. If you expose the raw TCP port, the PSK is still sent in clear text. Set `capnp_require_tls: true` and use the TLS listener for protected deployments.
+Cap'n Proto does not encrypt traffic. If you expose the raw TCP port, the PSK is still sent in clear text. Set `capnp_require_tls: true` and use the TLS listener for protected deployments.
 
 ## Documentation
 

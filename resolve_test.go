@@ -1,30 +1,11 @@
 package main
 
 import (
-	"context"
 	"path/filepath"
 	"testing"
 
 	"go.etcd.io/bbolt"
 )
-
-type stubMLClient struct {
-	info    MLInfo
-	resolve MLResolveResponse
-	share   MLShareResponse
-}
-
-func (s stubMLClient) Info(context.Context) (MLInfo, error) {
-	return s.info, nil
-}
-
-func (s stubMLClient) Resolve(context.Context, ProgramBundle, int) (MLResolveResponse, error) {
-	return s.resolve, nil
-}
-
-func (s stubMLClient) Share(context.Context, ProgramBundle) (MLShareResponse, error) {
-	return s.share, nil
-}
 
 func newTestDB(t *testing.T, name string) *bbolt.DB {
 	t.Helper()
@@ -38,52 +19,23 @@ func newTestDB(t *testing.T, name string) *bbolt.DB {
 	return db
 }
 
-func TestResolveProgramUsesCandidateFilteredExactMatchAndApproxFallback(t *testing.T) {
-	dbOther := newTestDB(t, "other.db")
-	dbMatch := newTestDB(t, "match.db")
-
+func TestResolveProgramUsesExactSignatureAndHints(t *testing.T) {
+	db := newTestDB(t, "match.db")
 	section := &SectionHash{Size: 0x30, Paddr: 0x4000, Digest: []byte{0xaa, 0xbb}}
 	sectionKey := SectionHashToKey(section, "elf", "linux")
-	if err := DbSetHintsMeta(dbOther, sectionKey, "psk", ".text", "bin-other", []*Hint{{Bits: 64, Offset: 0x10}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := DbSetHintsMeta(dbMatch, sectionKey, "psk", ".text", "bin-match", []*Hint{{Bits: 64, Offset: 0x20}}); err != nil {
+	if err := DbSetHintsMeta(db, sectionKey, "psk", ".text", "bin-match", []*Hint{{Bits: 64, Offset: 0x20}}); err != nil {
 		t.Fatal(err)
 	}
 
 	sig := &Signature{Arch: "x86", Bits: 64, Length: 16, Digest: []byte{0x01, 0x02}}
-	sigKey := SignatureToKey(sig)
-	if err := DbSetSymbolMeta(dbOther, sigKey, "psk", "bin-other", &Symbol{Name: "sym.bad"}, 0); err != nil {
-		t.Fatal(err)
-	}
-	if err := DbSetSymbolMeta(dbMatch, sigKey, "psk", "bin-match", &Symbol{Name: "sym.good", Signature: "int good()", Callconv: "sysv", Bits: 64}, 0); err != nil {
+	if err := DbSetSymbolMeta(db, SignatureToKey(sig), "psk", "bin-match", &Symbol{Name: "sym.good", Signature: "int good()", Callconv: "sysv", Bits: 64}, 0); err != nil {
 		t.Fatal(err)
 	}
 
 	server := &Server{
-		auths: map[string]bool{"psk": true},
-		search: map[string][]*bbolt.DB{
-			GENERIC_DB: {dbOther, dbMatch},
-		},
+		auths:  map[string]bool{"psk": true},
+		search: map[string][]*bbolt.DB{GENERIC_DB: {db}},
 		shared: map[string]*bbolt.DB{},
-		ml: stubMLClient{
-			resolve: MLResolveResponse{
-				CandidateBinaryIDs: []string{"bin-match"},
-				ModelVersion:       "hash-embed-v1",
-				IndexVersion:       "flat-v1",
-				Symbols: []SymbolMatchRecord{
-					{
-						Addr:            0x5000,
-						Symbol:          SymbolRecord{Name: "sym.approx", Signature: "void approx()", Bits: 64},
-						Confidence:      0.77,
-						Exact:           false,
-						MatchedBinaryID: "bin-match",
-						MatchedBy:       "keenhash_sem",
-					},
-				},
-			},
-		},
-		mlTopK: 5,
 	}
 
 	result := server.ResolveProgram("psk", ProgramBundle{
@@ -96,24 +48,20 @@ func TestResolveProgramUsesCandidateFilteredExactMatchAndApproxFallback(t *testi
 		},
 		Functions: []FunctionRecord{
 			{Addr: 0x4020, Bits: 64, Arch: "x86", Length: 16, Digest: []byte{0x01, 0x02}},
-			{Addr: 0x5000, Bits: 64, Arch: "x86"},
 		},
 	})
 
-	if len(result.CandidateBinaryIDs) != 1 || result.CandidateBinaryIDs[0] != "bin-match" {
-		t.Fatalf("unexpected candidates: %#v", result.CandidateBinaryIDs)
-	}
-	if len(result.Hints) != 1 || result.Hints[0].Offset != 0x4020 || result.Hints[0].MatchedBinaryID != "bin-match" {
+	if len(result.Hints) != 1 || result.Hints[0].Offset != 0x4020 {
 		t.Fatalf("unexpected hints: %#v", result.Hints)
 	}
-	if len(result.Symbols) != 2 {
-		t.Fatalf("unexpected symbol count: %#v", result.Symbols)
+	if len(result.Symbols) != 1 {
+		t.Fatalf("unexpected symbols: %#v", result.Symbols)
 	}
 	if !result.Symbols[0].Exact || result.Symbols[0].Symbol.Name != "sym.good" {
 		t.Fatalf("exact symbol mismatch: %#v", result.Symbols[0])
 	}
-	if result.Symbols[1].Exact || result.Symbols[1].MatchedBy != "keenhash_sem" {
-		t.Fatalf("approx symbol mismatch: %#v", result.Symbols[1])
+	if result.Symbols[0].MatchedBy != "exact_signature" {
+		t.Fatalf("unexpected match type: %#v", result.Symbols[0])
 	}
 }
 
@@ -123,13 +71,6 @@ func TestShareProgramStoresExactDataWithBinaryID(t *testing.T) {
 		auths:  map[string]bool{"psk": true},
 		search: map[string][]*bbolt.DB{GENERIC_DB: {shareDB}},
 		shared: map[string]*bbolt.DB{"psk": shareDB},
-		ml: stubMLClient{
-			share: MLShareResponse{
-				CandidateCount: 3,
-				ModelVersion:   "hash-embed-v1",
-				IndexVersion:   "flat-v1",
-			},
-		},
 	}
 
 	bundle := ProgramBundle{
@@ -161,9 +102,6 @@ func TestShareProgramStoresExactDataWithBinaryID(t *testing.T) {
 	result := server.ShareProgram("psk", bundle)
 	if result.BinaryID == "" {
 		t.Fatal("share result binary id is empty")
-	}
-	if result.CandidateCount != 3 {
-		t.Fatalf("unexpected candidate count: %d", result.CandidateCount)
 	}
 
 	normalized := normalizeProgramBundle(bundle)
@@ -206,7 +144,6 @@ func TestShareProgramPreservesVASectionOffsets(t *testing.T) {
 		auths:  map[string]bool{"psk": true},
 		search: map[string][]*bbolt.DB{GENERIC_DB: {shareDB}},
 		shared: map[string]*bbolt.DB{"psk": shareDB},
-		ml:     stubMLClient{},
 	}
 
 	bundle := ProgramBundle{
@@ -254,7 +191,6 @@ func TestResolveProgramPrefersExactLocationOverAmbiguousSignature(t *testing.T) 
 		auths:  map[string]bool{"psk": true},
 		search: map[string][]*bbolt.DB{GENERIC_DB: {db}},
 		shared: map[string]*bbolt.DB{"psk": db},
-		ml:     stubMLClient{},
 	}
 
 	bundle := normalizeProgramBundle(ProgramBundle{
@@ -335,7 +271,6 @@ func TestResolveProgramReturnsExtraExactLocationSymbolsForHintedOffsets(t *testi
 		auths:  map[string]bool{"psk": true},
 		search: map[string][]*bbolt.DB{GENERIC_DB: {db}},
 		shared: map[string]*bbolt.DB{"psk": db},
-		ml:     stubMLClient{},
 	}
 
 	bundle := normalizeProgramBundle(ProgramBundle{

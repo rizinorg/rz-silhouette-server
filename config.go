@@ -10,7 +10,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -19,8 +18,7 @@ import (
 )
 
 const (
-	MIN_VERSION = uint32(1)
-	GENERIC_DB  = "any"
+	GENERIC_DB = "any"
 )
 
 type Resource struct {
@@ -39,9 +37,6 @@ type Config struct {
 	TlsCert         string          `yaml:"tls-cert"`
 	Message         string          `yaml:"message"`
 	UploadDir       string          `yaml:"upload_dir"`
-	MLServiceURL    string          `yaml:"ml_service_url"`
-	MLTimeout       int             `yaml:"ml_timeout"`
-	MLTopK          int             `yaml:"ml_topk"`
 	CapnpRequireTLS bool            `yaml:"capnp_require_tls"`
 	Resources       []Resource      `yaml:"resources"`
 	Authorized      map[string]bool `yaml:"authorized"`
@@ -83,22 +78,7 @@ func readConfig(filename string, config *Config) error {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	}
 
-	if config.MLTimeout < 1 {
-		config.MLTimeout = 5000
-	}
-	if config.MLTopK < 1 {
-		config.MLTopK = 10
-	}
-
 	return nil
-}
-
-func (c *Config) MLTimeoutDuration() time.Duration {
-	timeout := c.MLTimeout
-	if timeout < 1 {
-		timeout = 5000
-	}
-	return time.Duration(timeout) * time.Millisecond
 }
 
 func sharedDBFilename(dir, key string) string {

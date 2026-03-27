@@ -37,10 +37,6 @@ resources:
 # path to the upload database for those clients that are authorized.
 upload_dir: /path/to/shared
 
-# Optional KEENHash service.
-ml_service_url: "http://127.0.0.1:8080"
-ml_timeout: 5000
-ml_topk: 10
 # Cap'n Proto only changes serialization. Keep this enabled for real deployments
 # unless the raw TCP listener is strictly local and trusted.
 capnp_require_tls: true

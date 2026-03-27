@@ -10,10 +10,51 @@ import (
 )
 
 const (
-	PROTOBUF_VERSION = uint32(1)
-	CAPNP_VERSION    = uint32(2)
-	MAX_VERSION      = CAPNP_VERSION
+	PROTOCOL_VERSION = uint32(1)
 )
+
+type Hint struct {
+	Bits   uint32 `json:"bits"`
+	Offset uint64 `json:"offset"`
+}
+
+type Symbol struct {
+	Name      string `json:"name,omitempty"`
+	Signature string `json:"signature,omitempty"`
+	Callconv  string `json:"callconv,omitempty"`
+	Bits      uint32 `json:"bits,omitempty"`
+}
+
+type SectionHash struct {
+	Size   uint32 `json:"size"`
+	Paddr  uint64 `json:"paddr"`
+	Digest []byte `json:"digest,omitempty"`
+}
+
+type Signature struct {
+	Arch   string `json:"arch,omitempty"`
+	Bits   uint32 `json:"bits,omitempty"`
+	Length uint32 `json:"length,omitempty"`
+	Digest []byte `json:"digest,omitempty"`
+}
+
+type ShareSymbol struct {
+	Symbol    *Symbol    `json:"symbol,omitempty"`
+	Signature *Signature `json:"signature,omitempty"`
+}
+
+type ShareSection struct {
+	Name    string       `json:"name,omitempty"`
+	Section *SectionHash `json:"section,omitempty"`
+	Hints   []*Hint      `json:"hints,omitempty"`
+}
+
+type ShareBin struct {
+	Type     string          `json:"type,omitempty"`
+	Os       string          `json:"os,omitempty"`
+	Sections []*ShareSection `json:"sections,omitempty"`
+	Symbols  []*ShareSymbol  `json:"symbols,omitempty"`
+}
 
 type SymbolRecord struct {
 	Name      string `json:"name,omitempty"`
@@ -30,23 +71,18 @@ type SectionRecord struct {
 }
 
 type FunctionRecord struct {
-	Addr             uint64   `json:"addr"`
-	Size             uint32   `json:"size"`
-	Bits             uint32   `json:"bits,omitempty"`
-	Arch             string   `json:"arch,omitempty"`
-	Length           uint32   `json:"length,omitempty"`
-	Digest           []byte   `json:"digest,omitempty"`
-	SectionName      string   `json:"section_name,omitempty"`
-	SectionPaddr     uint64   `json:"section_paddr"`
-	SectionOffset    uint64   `json:"section_offset"`
-	Loc              uint32   `json:"loc,omitempty"`
-	Nos              uint32   `json:"nos,omitempty"`
-	Pseudocode       string   `json:"pseudocode,omitempty"`
-	PseudocodeSource string   `json:"pseudocode_source,omitempty"`
-	Calls            []uint64 `json:"calls,omitempty"`
-	Name             string   `json:"name,omitempty"`
-	Signature        string   `json:"signature,omitempty"`
-	Callconv         string   `json:"callconv,omitempty"`
+	Addr          uint64 `json:"addr"`
+	Size          uint32 `json:"size"`
+	Bits          uint32 `json:"bits,omitempty"`
+	Arch          string `json:"arch,omitempty"`
+	Length        uint32 `json:"length,omitempty"`
+	Digest        []byte `json:"digest,omitempty"`
+	SectionName   string `json:"section_name,omitempty"`
+	SectionPaddr  uint64 `json:"section_paddr"`
+	SectionOffset uint64 `json:"section_offset"`
+	Name          string `json:"name,omitempty"`
+	Signature     string `json:"signature,omitempty"`
+	Callconv      string `json:"callconv,omitempty"`
 }
 
 type ProgramBundle struct {
@@ -57,20 +93,16 @@ type ProgramBundle struct {
 	BinaryID   string           `json:"binary_id,omitempty"`
 	Sections   []SectionRecord  `json:"sections,omitempty"`
 	Functions  []FunctionRecord `json:"functions,omitempty"`
-	TopK       uint32           `json:"topk,omitempty"`
 }
 
 type HintMatch struct {
-	Bits            uint32  `json:"bits"`
-	Offset          uint64  `json:"offset"`
-	Confidence      float32 `json:"confidence"`
-	MatchedBinaryID string  `json:"matched_binary_id,omitempty"`
+	Bits   uint32 `json:"bits"`
+	Offset uint64 `json:"offset"`
 }
 
 type SymbolMatchRecord struct {
 	Addr            uint64       `json:"addr"`
 	Symbol          SymbolRecord `json:"symbol"`
-	Confidence      float32      `json:"confidence"`
 	Exact           bool         `json:"exact"`
 	MatchedBinaryID string       `json:"matched_binary_id,omitempty"`
 	MatchedBy       string       `json:"matched_by,omitempty"`
@@ -79,19 +111,12 @@ type SymbolMatchRecord struct {
 }
 
 type ResolveProgramResult struct {
-	Hints              []HintMatch         `json:"hints,omitempty"`
-	Symbols            []SymbolMatchRecord `json:"symbols,omitempty"`
-	CandidateBinaryIDs []string            `json:"candidate_binary_ids,omitempty"`
-	ModelVersion       string              `json:"model_version,omitempty"`
-	IndexVersion       string              `json:"index_version,omitempty"`
+	Hints   []HintMatch         `json:"hints,omitempty"`
+	Symbols []SymbolMatchRecord `json:"symbols,omitempty"`
 }
 
 type ShareProgramResult struct {
-	BinaryID          string `json:"binary_id,omitempty"`
-	IngestedFunctions uint32 `json:"ingested_functions"`
-	CandidateCount    uint32 `json:"candidate_count"`
-	ModelVersion      string `json:"model_version,omitempty"`
-	IndexVersion      string `json:"index_version,omitempty"`
+	BinaryID string `json:"binary_id,omitempty"`
 }
 
 func symbolRecordFromProto(sym *Symbol) SymbolRecord {
@@ -132,9 +157,6 @@ func normalizeProgramBundle(bundle ProgramBundle) ProgramBundle {
 	bundle.BinaryType = sanitizeWord(bundle.BinaryType, GENERIC_DB)
 	bundle.OS = sanitizeWord(bundle.OS, GENERIC_DB)
 	bundle.Arch = sanitizeWord(bundle.Arch, GENERIC_DB)
-	if bundle.TopK < 1 {
-		bundle.TopK = 0
-	}
 	for i := range bundle.Sections {
 		bundle.Sections[i].Name = strings.TrimSpace(bundle.Sections[i].Name)
 		bundle.Sections[i].Digest = append([]byte(nil), bundle.Sections[i].Digest...)
@@ -143,16 +165,10 @@ func normalizeProgramBundle(bundle ProgramBundle) ProgramBundle {
 		fn := &bundle.Functions[i]
 		fn.Arch = sanitizeWord(fn.Arch, bundle.Arch)
 		fn.SectionName = strings.TrimSpace(fn.SectionName)
-		fn.Pseudocode = strings.TrimSpace(fn.Pseudocode)
-		fn.PseudocodeSource = sanitizeWord(fn.PseudocodeSource, "none")
-		if fn.PseudocodeSource != "ghidra" && fn.PseudocodeSource != "pseudo" && fn.PseudocodeSource != "none" {
-			fn.PseudocodeSource = "none"
-		}
 		fn.Name = strings.TrimSpace(fn.Name)
 		fn.Signature = strings.TrimSpace(fn.Signature)
 		fn.Callconv = sanitizeWord(fn.Callconv, "")
 		fn.Digest = append([]byte(nil), fn.Digest...)
-		fn.Calls = append([]uint64(nil), fn.Calls...)
 		if fn.Length < 1 {
 			fn.Length = fn.Size
 		}
@@ -174,23 +190,18 @@ func computeBinaryID(bundle ProgramBundle) string {
 		Digest string `json:"digest,omitempty"`
 	}
 	type manifestFunction struct {
-		Addr             uint64   `json:"addr"`
-		Size             uint32   `json:"size"`
-		Bits             uint32   `json:"bits,omitempty"`
-		Arch             string   `json:"arch,omitempty"`
-		Length           uint32   `json:"length,omitempty"`
-		Digest           string   `json:"digest,omitempty"`
-		SectionName      string   `json:"section_name,omitempty"`
-		SectionPaddr     uint64   `json:"section_paddr"`
-		SectionOffset    uint64   `json:"section_offset"`
-		Loc              uint32   `json:"loc,omitempty"`
-		Nos              uint32   `json:"nos,omitempty"`
-		Pseudocode       string   `json:"pseudocode,omitempty"`
-		PseudocodeSource string   `json:"pseudocode_source,omitempty"`
-		Calls            []uint64 `json:"calls,omitempty"`
-		Name             string   `json:"name,omitempty"`
-		Signature        string   `json:"signature,omitempty"`
-		Callconv         string   `json:"callconv,omitempty"`
+		Addr          uint64 `json:"addr"`
+		Size          uint32 `json:"size"`
+		Bits          uint32 `json:"bits,omitempty"`
+		Arch          string `json:"arch,omitempty"`
+		Length        uint32 `json:"length,omitempty"`
+		Digest        string `json:"digest,omitempty"`
+		SectionName   string `json:"section_name,omitempty"`
+		SectionPaddr  uint64 `json:"section_paddr"`
+		SectionOffset uint64 `json:"section_offset"`
+		Name          string `json:"name,omitempty"`
+		Signature     string `json:"signature,omitempty"`
+		Callconv      string `json:"callconv,omitempty"`
 	}
 	type manifest struct {
 		BinaryType string             `json:"binary_type,omitempty"`
@@ -220,23 +231,18 @@ func computeBinaryID(bundle ProgramBundle) string {
 	}
 	for _, fn := range bundle.Functions {
 		out.Functions = append(out.Functions, manifestFunction{
-			Addr:             fn.Addr,
-			Size:             fn.Size,
-			Bits:             fn.Bits,
-			Arch:             fn.Arch,
-			Length:           fn.Length,
-			Digest:           hex.EncodeToString(fn.Digest),
-			SectionName:      fn.SectionName,
-			SectionPaddr:     fn.SectionPaddr,
-			SectionOffset:    fn.SectionOffset,
-			Loc:              fn.Loc,
-			Nos:              fn.Nos,
-			Pseudocode:       fn.Pseudocode,
-			PseudocodeSource: fn.PseudocodeSource,
-			Calls:            append([]uint64(nil), fn.Calls...),
-			Name:             fn.Name,
-			Signature:        fn.Signature,
-			Callconv:         fn.Callconv,
+			Addr:          fn.Addr,
+			Size:          fn.Size,
+			Bits:          fn.Bits,
+			Arch:          fn.Arch,
+			Length:        fn.Length,
+			Digest:        hex.EncodeToString(fn.Digest),
+			SectionName:   fn.SectionName,
+			SectionPaddr:  fn.SectionPaddr,
+			SectionOffset: fn.SectionOffset,
+			Name:          fn.Name,
+			Signature:     fn.Signature,
+			Callconv:      fn.Callconv,
 		})
 	}
 
