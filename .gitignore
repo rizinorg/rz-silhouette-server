@@ -1,1 +1,9 @@
-rz-silhouette-server
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+.tmp/
+config.local.yaml
+state/
+artifacts/
+ml_service/.cache/

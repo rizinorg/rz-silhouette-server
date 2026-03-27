@@ -4,12 +4,13 @@
 package main
 
 import (
-	"crypto/md5"
+	"crypto/sha256"
 	"crypto/tls"
 	"fmt"
-	"io/ioutil"
 	"net"
+	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -24,26 +25,30 @@ const (
 
 type Resource struct {
 	Arch  string   `yaml:"arch"`
-	Bits  int      `yaml:"bits`
+	Bits  int      `yaml:"bits"`
 	Files []string `yaml:"files"`
 }
 
 type Config struct {
-	MaxQueue   int             `yaml:"max_queue"`
-	MaxPacket  int64           `yaml:"max_packet"`
-	LogLevel   string          `yaml:"log_level"`
-	RawBind    string          `yaml:"raw-bind"`
-	TlsBind    string          `yaml:"tls-bind"`
-	TlsKey     string          `yaml:"tls-key"`
-	TlsCert    string          `yaml:"tls-cert"`
-	Message    string          `yaml:"message"`
-	UploadDir  string          `yaml:"upload_dir"`
-	Resources  []Resource      `yaml:"resources"`
-	Authorized map[string]bool `yaml:"authorized"`
+	MaxQueue        int             `yaml:"max_queue"`
+	MaxPacket       int64           `yaml:"max_packet"`
+	LogLevel        string          `yaml:"log_level"`
+	RawBind         string          `yaml:"raw-bind"`
+	TlsBind         string          `yaml:"tls-bind"`
+	TlsKey          string          `yaml:"tls-key"`
+	TlsCert         string          `yaml:"tls-cert"`
+	Message         string          `yaml:"message"`
+	UploadDir       string          `yaml:"upload_dir"`
+	MLServiceURL    string          `yaml:"ml_service_url"`
+	MLTimeout       int             `yaml:"ml_timeout"`
+	MLTopK          int             `yaml:"ml_topk"`
+	CapnpRequireTLS bool            `yaml:"capnp_require_tls"`
+	Resources       []Resource      `yaml:"resources"`
+	Authorized      map[string]bool `yaml:"authorized"`
 }
 
 func readConfig(filename string, config *Config) error {
-	body, err := ioutil.ReadFile(filename)
+	body, err := os.ReadFile(filename)
 	if err != nil {
 		return err
 	}
@@ -78,7 +83,27 @@ func readConfig(filename string, config *Config) error {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	}
 
+	if config.MLTimeout < 1 {
+		config.MLTimeout = 5000
+	}
+	if config.MLTopK < 1 {
+		config.MLTopK = 10
+	}
+
 	return nil
+}
+
+func (c *Config) MLTimeoutDuration() time.Duration {
+	timeout := c.MLTimeout
+	if timeout < 1 {
+		timeout = 5000
+	}
+	return time.Duration(timeout) * time.Millisecond
+}
+
+func sharedDBFilename(dir, key string) string {
+	sum := sha256.Sum256([]byte(key))
+	return filepath.Join(dir, fmt.Sprintf("%x.db", sum))
 }
 
 func (c *Config) GetAuthorized() map[string]bool {
@@ -176,8 +201,7 @@ func (c *Config) LoadResources() (map[string][]*bbolt.DB, map[string]*bbolt.DB) 
 			if !canUpload {
 				continue
 			}
-			dbFile := fmt.Sprintf("%x.db", md5.Sum([]byte(key)))
-			dbFile = filepath.Join(c.UploadDir, dbFile)
+			dbFile := sharedDBFilename(c.UploadDir, key)
 
 			db, err := OpenDatabase(dbFile)
 			if err != nil {
