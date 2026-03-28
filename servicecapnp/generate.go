@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 func main() {
@@ -103,27 +104,15 @@ func candidateBinDirs() []string {
 	}
 
 	if out, err := exec.Command("go", "env", "GOBIN").Output(); err == nil {
-		add(stringTrimSpace(out))
+		add(strings.TrimSpace(string(out)))
 	}
 	if out, err := exec.Command("go", "env", "GOPATH").Output(); err == nil {
-		for _, root := range filepath.SplitList(stringTrimSpace(out)) {
+		for _, root := range filepath.SplitList(strings.TrimSpace(string(out))) {
 			add(filepath.Join(root, "bin"))
 		}
 	}
 
 	return dirs
-}
-
-func stringTrimSpace(out []byte) string {
-	start := 0
-	end := len(out)
-	for start < end && (out[start] == '\n' || out[start] == '\r' || out[start] == '\t' || out[start] == ' ') {
-		start++
-	}
-	for end > start && (out[end-1] == '\n' || out[end-1] == '\r' || out[end-1] == '\t' || out[end-1] == ' ') {
-		end--
-	}
-	return string(out[start:end])
 }
 
 func fail(err error) {
