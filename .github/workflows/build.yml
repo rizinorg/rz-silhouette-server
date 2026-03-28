@@ -99,7 +99,7 @@ jobs:
       CGO_ENABLED: 0
     steps:
       - name: Checkout codebase
-        uses: actions/checkout@v3
+        uses: actions/checkout@v6
 
       - name: Show workflow information 
         id: get_filename
@@ -107,9 +107,9 @@ jobs:
           export _NAME=$(jq ".[\"$GOOS-$GOARCH$GOARM$GOMIPS\"].friendlyName" -r < .github/build/friendly-filenames.json)
           echo "GOOS: $GOOS, GOARCH: $GOARCH, GOARM: $GOARM, GOMIPS: $GOMIPS, RELEASE_NAME: $_NAME"
       - name: Set up Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v6
         with:
-          go-version: ^1.20
+          go-version: ^1.24
 
       - name: Get project dependencies
         run: go mod download
@@ -126,7 +126,7 @@ jobs:
         run: mv rz-silhouette-server-${{ matrix.goos }}-${{ matrix.goarch }} rz-silhouette-server-${{ matrix.goos }}-${{ matrix.goarch }}.exe
 
       - name: Upload files to Artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v6
         with:
           name: rz-silhouette-server-${{ matrix.goos }}-${{ matrix.goarch }}
           path: ./rz-silhouette-server-${{ matrix.goos }}-*
