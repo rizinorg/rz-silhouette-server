@@ -115,14 +115,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y capnproto
 
-      - name: Install Cap'n Proto Go plugin
-        run: go install capnproto.org/go/capnp/v3/capnpc-go@v3.1.0-alpha.2
+      - name: Install host Cap'n Proto Go plugin
+        # capnpc-go must run on the GitHub runner, not the matrix target.
+        run: env -u GOOS -u GOARCH -u GOARM -u GOMIPS -u CGO_ENABLED go install capnproto.org/go/capnp/v3/capnpc-go@v3.1.0-alpha.2
 
       - name: Get project dependencies
         run: go mod download
 
-      - name: Generate Cap'n Proto bindings
-        run: go generate ./servicecapnp
+      - name: Generate host Cap'n Proto bindings
+        # go generate builds and executes generate.go, so it must use host Go env.
+        run: env -u GOOS -u GOARCH -u GOARM -u GOMIPS -u CGO_ENABLED go generate ./servicecapnp
  
       - name: Build rz-silhouette-server
         run: go build -o rz-silhouette-server-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goarm }}
