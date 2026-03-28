@@ -104,8 +104,7 @@ jobs:
       - name: Show workflow information 
         id: get_filename
         run: |
-          export _NAME=$(jq ".[\"$GOOS-$GOARCH$GOARM$GOMIPS\"].friendlyName" -r < .github/build/friendly-filenames.json)
-          echo "GOOS: $GOOS, GOARCH: $GOARCH, GOARM: $GOARM, GOMIPS: $GOMIPS, RELEASE_NAME: $_NAME"
+          echo "GOOS: $GOOS, GOARCH: $GOARCH, GOARM: $GOARM, GOMIPS: $GOMIPS"
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
@@ -115,7 +114,7 @@ jobs:
         run: go mod download
  
       - name: Build rz-silhouette-server
-        run: go build -o rz-silhouette-server-${{ matrix.goos }}-${{ matrix.goarch }}
+        run: go build -o rz-silhouette-server-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goarm }}
     
       - name: Build Mips softfloat
         if: matrix.goarch == 'mips' || matrix.goarch == 'mipsle'
@@ -128,6 +127,6 @@ jobs:
       - name: Upload files to Artifacts
         uses: actions/upload-artifact@v6
         with:
-          name: rz-silhouette-server-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: rz-silhouette-server-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goarm }} 
           path: ./rz-silhouette-server-${{ matrix.goos }}-*
 
