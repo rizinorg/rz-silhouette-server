@@ -122,7 +122,7 @@ jobs:
 
       - name: Rename Windows
         if: matrix.goos == 'windows'
-        run: mv rz-silhouette-server-${{ matrix.goos }}-${{ matrix.goarch }} rz-silhouette-server-${{ matrix.goos }}-${{ matrix.goarch }}.exe
+        run: mv rz-silhouette-server-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goarm }} rz-silhouette-server-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goarm }}.exe
 
       - name: Upload files to Artifacts
         uses: actions/upload-artifact@v6
