@@ -4,6 +4,7 @@
 package main
 
 import (
+	"crypto/md5"
 	"crypto/sha256"
 	"crypto/tls"
 	"fmt"
@@ -84,6 +85,31 @@ func readConfig(filename string, config *Config) error {
 func sharedDBFilename(dir, key string) string {
 	sum := sha256.Sum256([]byte(key))
 	return filepath.Join(dir, fmt.Sprintf("%x.db", sum))
+}
+
+func legacySharedDBFilename(dir, key string) string {
+	sum := md5.Sum([]byte(key))
+	return filepath.Join(dir, fmt.Sprintf("%x.db", sum))
+}
+
+func resolveSharedDBFilename(dir, key string) (string, error) {
+	current := sharedDBFilename(dir, key)
+	if exists(current) {
+		return current, nil
+	}
+
+	legacy := legacySharedDBFilename(dir, key)
+	if !exists(legacy) {
+		return current, nil
+	}
+
+	if err := os.Rename(legacy, current); err == nil {
+		log.Warn().Msgf("migrated legacy shared db %s -> %s", legacy, current)
+		return current, nil
+	}
+
+	log.Warn().Msgf("using legacy shared db path %s because migration to %s failed", legacy, current)
+	return legacy, nil
 }
 
 func (c *Config) GetAuthorized() map[string]bool {
@@ -181,7 +207,10 @@ func (c *Config) LoadResources() (map[string][]*bbolt.DB, map[string]*bbolt.DB) 
 			if !canUpload {
 				continue
 			}
-			dbFile := sharedDBFilename(c.UploadDir, key)
+			dbFile, err := resolveSharedDBFilename(c.UploadDir, key)
+			if err != nil {
+				log.Fatal().Err(err).Send()
+			}
 
 			db, err := OpenDatabase(dbFile)
 			if err != nil {
