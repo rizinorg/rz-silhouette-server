@@ -37,6 +37,10 @@ resources:
 # path to the upload database for those clients that are authorized.
 upload_dir: /path/to/shared
 
+# Cap'n Proto only changes serialization. Keep this enabled for real deployments
+# unless the raw TCP listener is strictly local and trusted.
+capnp_require_tls: true
+
 # Map of 'psk: bool' of authorized clients which can and cannot upload
 authorized:
   39b1212a-944e-4b4f-83a7-33a3be33e314: true

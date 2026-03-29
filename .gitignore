@@ -1,1 +1,6 @@
-rz-silhouette-server
+__pycache__/
+.tmp/
+config.local.yaml
+state/
+artifacts/
+servicecapnp/service.capnp.go

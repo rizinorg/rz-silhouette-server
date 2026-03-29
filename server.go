@@ -24,12 +24,13 @@ var (
 )
 
 type Server struct {
-	motd   string
-	auths  map[string]bool
-	search map[string][]*bbolt.DB
-	shared map[string]*bbolt.DB
-	mutex  sync.Mutex
-	queue  chan net.Conn
+	motd            string
+	auths           map[string]bool
+	search          map[string][]*bbolt.DB
+	shared          map[string]*bbolt.DB
+	mutex           sync.Mutex
+	queue           chan net.Conn
+	capnpRequireTLS bool
 }
 
 func maxThreads() int {
@@ -67,7 +68,18 @@ func (s *Server) GetShareDB(key string) *bbolt.DB {
 	return s.shared[key]
 }
 
-func (s *Server) GetSymbol(psk string, sig *Signature) *Symbol {
+func binaryIDAllowed(binaryID string, candidates map[string]struct{}) bool {
+	if len(candidates) < 1 {
+		return true
+	}
+	if binaryID == "" {
+		return true
+	}
+	_, ok := candidates[binaryID]
+	return ok
+}
+
+func (s *Server) GetSymbolMeta(psk string, sig *Signature, candidates map[string]struct{}) *MetaSymbol {
 	if sig == nil || sig.Digest == nil {
 		return nil
 	}
@@ -76,18 +88,37 @@ func (s *Server) GetSymbol(psk string, sig *Signature) *Symbol {
 
 	key := SignatureToKey(sig)
 	for _, db := range dbs {
-		sym, err := DbGetSymbol(db, key)
+		meta, err := DbGetSymbolMeta(db, key)
 		if err != nil {
 			log.Error().Str("psk", psk).Err(err).Send()
 			continue
-		} else if sym != nil {
-			return sym
+		} else if meta != nil && binaryIDAllowed(meta.BinaryID, candidates) {
+			return meta
 		}
 	}
 	return nil
 }
 
-func (s *Server) SetSymbol(psk string, sig *Signature, sym *Symbol) {
+func (s *Server) GetLocationSymbolMeta(psk, binaryID string, fn FunctionRecord) *MetaSymbol {
+	if binaryID == "" || fn.SectionName == "" {
+		return nil
+	}
+
+	key := FunctionLocationToKey(binaryID, fn.SectionName, fn.SectionPaddr, fn.SectionOffset)
+	for _, db := range s.GetHintsDbs() {
+		meta, err := DbGetLocationSymbolMeta(db, key)
+		if err != nil {
+			log.Error().Str("psk", psk).Err(err).Send()
+			continue
+		}
+		if meta != nil {
+			return meta
+		}
+	}
+	return nil
+}
+
+func (s *Server) SetSymbolWithBinaryID(psk string, sig *Signature, sym *Symbol, binaryID string) {
 	if sig == nil || sym == nil || sig.Digest == nil || len(sym.Name) < 1 {
 		return
 	}
@@ -125,31 +156,84 @@ func (s *Server) SetSymbol(psk string, sig *Signature, sym *Symbol) {
 	}
 
 	s.mutex.Lock()
-	err := DbSetSymbol(db, key, psk, sym)
+	err := DbSetSymbolMeta(db, key, psk, binaryID, sym, 0)
 	s.mutex.Unlock()
 	if err != nil {
 		log.Error().Str("psk", psk).Err(err).Send()
 	} else {
-		log.Warn().Str("psk", psk).Str("arch", sig.Arch).Uint32("bits", sig.Bits).Str("name", sym.Name).Send()
+		log.Warn().
+			Str("psk", psk).
+			Str("arch", sig.Arch).
+			Uint32("bits", sig.Bits).
+			Str("name", sym.Name).
+			Str("binary_id", binaryID).
+			Send()
 	}
 }
 
-func (s *Server) GetHints(psk string, bin *Binary, sec *SectionHash) []*Hint {
+func (s *Server) SetLocationSymbolWithBinaryID(psk string, fn FunctionRecord, sym *Symbol, binaryID string) {
+	if binaryID == "" || sym == nil || len(sym.Name) < 1 || fn.SectionName == "" {
+		return
+	}
+
+	db := s.GetShareDB(psk)
+	if db == nil {
+		log.Error().Str("psk", psk).Msg("tried to upload location symbols but db was not found")
+		return
+	}
+
+	key := FunctionLocationToKey(binaryID, fn.SectionName, fn.SectionPaddr, fn.SectionOffset)
+	found, err := DbHasLocationSymbol(db, key)
+	if err != nil {
+		log.Error().Str("psk", psk).Err(err).Send()
+		return
+	}
+	if found {
+		return
+	}
+
+	sym.Name = sanitizeSymbol(sym.Name)
+	sym.Signature = strings.TrimSpace(sym.Signature)
+	sym.Callconv = sanitizeWord(sym.Callconv, "")
+	if sym.Bits > uint32(1024) {
+		sym.Bits = 0
+	}
+	if sym.Name == "" {
+		return
+	}
+
+	s.mutex.Lock()
+	err = DbSetLocationSymbolMeta(db, key, psk, binaryID, sym, fn.Size)
+	s.mutex.Unlock()
+	if err != nil {
+		log.Error().Str("psk", psk).Err(err).Send()
+	}
+}
+
+func (s *Server) SetSymbol(psk string, sig *Signature, sym *Symbol) {
+	s.SetSymbolWithBinaryID(psk, sig, sym, "")
+}
+
+func (s *Server) GetHintsMeta(psk string, binType, binOS string, sec *SectionHash, candidates map[string]struct{}) *MetaHints {
+	if sec == nil || sec.Digest == nil {
+		return nil
+	}
+
 	dbs := s.GetHintsDbs()
-	key := SectionHashToKey(sec, bin.Type, bin.Os)
+	key := SectionHashToKey(sec, binType, binOS)
 	for _, db := range dbs {
-		hints, err := DbGetHints(db, key)
+		meta, err := DbGetHintsMeta(db, key)
 		if err != nil {
 			log.Error().Str("psk", psk).Err(err).Send()
 			continue
-		} else if hints != nil {
-			return hints
+		} else if meta != nil && binaryIDAllowed(meta.BinaryID, candidates) {
+			return meta
 		}
 	}
 	return nil
 }
 
-func (s *Server) SetHints(psk string, bin *ShareBin, sec *ShareSection) {
+func (s *Server) SetHintsWithBinaryID(psk string, bin *ShareBin, sec *ShareSection, binaryID string) {
 	if sec == nil || sec.Hints == nil || len(sec.Hints) < 1 {
 		return
 	}
@@ -173,29 +257,22 @@ func (s *Server) SetHints(psk string, bin *ShareBin, sec *ShareSection) {
 	}
 
 	s.mutex.Lock()
-	err := DbSetHints(db, key, psk, sec.Name, sec.Hints)
+	err := DbSetHintsMeta(db, key, psk, sec.Name, binaryID, sec.Hints)
 	s.mutex.Unlock()
 	if err != nil {
 		log.Error().Str("psk", psk).Err(err).Send()
 	} else {
-		log.Warn().Str("psk", psk).Str("section", sec.Name).Int("hints", len(sec.Hints)).Send()
+		log.Warn().
+			Str("psk", psk).
+			Str("section", sec.Name).
+			Int("hints", len(sec.Hints)).
+			Str("binary_id", binaryID).
+			Send()
 	}
 }
 
-func (s *Server) IsAuthorized(req *Request) bool {
-	if req.Psk == "" {
-		return false
-	}
-	_, exists := s.auths[req.Psk]
-	return exists
-}
-
-func (s *Server) CanShare(req *Request) bool {
-	if req.Psk == "" {
-		return false
-	}
-	canShare, exists := s.auths[req.Psk]
-	return exists && canShare
+func (s *Server) SetHints(psk string, bin *ShareBin, sec *ShareSection) {
+	s.SetHintsWithBinaryID(psk, bin, sec, "")
 }
 
 func (s *Server) Worker() {
@@ -234,11 +311,12 @@ func NewServer(config *Config) *Server {
 	}
 
 	server := &Server{
-		motd:   config.Message,
-		auths:  auths,
-		search: search,
-		shared: shared,
-		queue:  make(chan net.Conn, maxQueue),
+		motd:            config.Message,
+		auths:           auths,
+		search:          search,
+		shared:          shared,
+		queue:           make(chan net.Conn, maxQueue),
+		capnpRequireTLS: config.CapnpRequireTLS,
 	}
 
 	nThreads := maxThreads()
